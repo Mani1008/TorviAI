@@ -348,7 +348,30 @@ export async function* streamAIFromConfig(
   if (systemPrompt) {
     fullMessages.push({ role: "system", content: systemPrompt });
   }
-  fullMessages.push(...messages.filter((m) => m.role !== "system"));
+  const historyMessages = messages.filter((m) => m.role !== "system");
+
+  // If images are provided, make the last user message multipart (text + image_url)
+  if (images && images.length > 0) {
+    const lastUserIdx = [...historyMessages].map(m => m.role).lastIndexOf("user");
+    for (let i = 0; i < historyMessages.length; i++) {
+      if (i === lastUserIdx) {
+        const textContent = typeof historyMessages[i].content === "string"
+          ? historyMessages[i].content as string
+          : "";
+        fullMessages.push({
+          role: "user",
+          content: [
+            { type: "text", text: textContent },
+            ...images.map(url => ({ type: "image_url" as const, image_url: { url } })),
+          ],
+        });
+      } else {
+        fullMessages.push(historyMessages[i]);
+      }
+    }
+  } else {
+    fullMessages.push(...historyMessages);
+  }
 
   // 3. Build request body — replace {{MESSAGES_JSON}} placeholder
   const messagesJson = JSON.stringify(fullMessages);

@@ -20,7 +20,7 @@ export function useCompletion() {
   const conversationIdRef = useRef<string | null>(null);
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, images?: string[]) => {
       if (!text.trim() || isLoading) return;
       setError(null);
 
@@ -70,6 +70,7 @@ export function useCompletion() {
         for await (const chunk of streamAIFromConfig({
           messages: apiMessages,
           systemPrompt,
+          images,
           abortSignal: controller.signal,
         })) {
           assistantMessage.content += chunk;

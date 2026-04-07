@@ -20,17 +20,6 @@ import {
   Contrast,
   Camera,
 } from "lucide-react";
-  // Screen analysis handler
-  const handleScreenAnalysis = async () => {
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("start_screen_capture");
-    } catch (e) {
-      // Optionally show a toast/banner here
-      console.error("Failed to start screen analysis:", e);
-    }
-  };
-
 // ─── Thinking indicator ───────────────────────────────────────────────────────
 function ThinkingDots() {
   return (
@@ -108,6 +97,13 @@ export default function App() {
     // Do NOT scroll during streaming
   }, [isLoading, messages]);
 
+  // Resize window to match content: 44px (toolbar only) or 600px (with panel)
+  useEffect(() => {
+    import("@tauri-apps/api/core").then(({ invoke }) => {
+      invoke("set_window_height", { height: isExpanded ? 600 : 44 }).catch(() => {});
+    });
+  }, [isExpanded]);
+
   const openDashboard = async () => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -118,9 +114,24 @@ export default function App() {
   const handleClear = () => {
     clearMessages(); clearError();
     clearSystemConversation(); clearSystemError();
+    setScreenImage(null);
   };
 
   const responseCount = messages.filter((m) => m.role === "assistant").length;
+
+  const [screenImage, setScreenImage] = useState<string | null>(null);
+  const handleScreenAnalysis = async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const imgData: string = await invoke("start_screen_capture");
+      setScreenImage(imgData);
+      setIsExpanded(true);
+      // Send screenshot to AI for analysis
+      await sendMessage("Analyze this screenshot and describe what you see.", [imgData]);
+    } catch (e) {
+      console.error("Screen analysis failed:", e);
+    }
+  };
 
   return (
     <div
@@ -302,6 +313,20 @@ export default function App() {
               >
                 <Headphones className="h-3.5 w-3.5 text-emerald-400 mt-0.5 shrink-0" />
                 <p className="text-xs text-emerald-300/85 italic leading-relaxed">{lastTranscription}</p>
+              </div>
+            )}
+
+            {/* Screen capture preview */}
+            {screenImage && (
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-white/30 px-1">Screen captured</span>
+                <img
+                  src={screenImage}
+                  alt="Screen capture"
+                  className="rounded-lg max-w-full border border-white/10 shadow cursor-pointer"
+                  onClick={() => setScreenImage(null)}
+                  title="Click to dismiss"
+                />
               </div>
             )}
 

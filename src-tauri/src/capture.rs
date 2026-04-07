@@ -1,15 +1,20 @@
 use tauri::{AppHandle, Manager};
+use xcap::Monitor;
+use base64::{engine::general_purpose, Engine as _};
+use std::io::Cursor;
 
-/// Start screen capture on all monitors, open overlay windows.
-///
-/// TODO: Capture all monitors using xcap.
-/// TODO: Create overlay windows per monitor.
-/// TODO: Handle DPI scaling.
+/// Capture the primary screen and return as a base64-encoded PNG string.
 #[tauri::command]
-pub async fn start_screen_capture(_app: AppHandle) -> Result<(), String> {
-    println!("[Capture] start_screen_capture");
-    // Placeholder - will use xcap crate
-    Ok(())
+pub async fn start_screen_capture(_app: AppHandle) -> Result<String, String> {
+    let monitors = Monitor::all().map_err(|e| format!("Monitor error: {e}"))?;
+    let monitor = monitors.into_iter().next().ok_or("No monitors found")?;
+    let image = monitor.capture_image().map_err(|e| format!("Capture error: {e}"))?;
+    let mut buf = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut buf, image::ImageFormat::Png)
+        .map_err(|e| format!("PNG encode error: {e}"))?;
+    let b64 = general_purpose::STANDARD.encode(buf.get_ref());
+    Ok(format!("data:image/png;base64,{}", b64))
 }
 
 /// Convert a captured screenshot to base64.

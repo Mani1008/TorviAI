@@ -23,7 +23,8 @@ fn apply_background_process_style(window: &WebviewWindow) {
 
 /// Set up the main window position (top center of primary monitor).
 pub fn setup_main_window(window: &WebviewWindow) -> Result<(), Box<dyn std::error::Error>> {
-    let _ = window.set_size(LogicalSize::new(600.0, 600.0));
+    // Start collapsed — just the toolbar height
+    let _ = window.set_size(LogicalSize::new(600.0, 44.0));
 
     if let Ok(monitor) = window.current_monitor() {
         if let Some(monitor) = monitor {
