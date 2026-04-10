@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from "react";
+import { useState, useRef, useEffect, type KeyboardEvent, type RefObject } from "react";
 import { Send, Mic, MicOff } from "lucide-react";
 
 interface TextInputProps {
@@ -9,6 +9,7 @@ interface TextInputProps {
   onMicToggle?: () => void;
   externalText?: string;
   onExternalTextConsumed?: () => void;
+  inputRef?: RefObject<HTMLInputElement | null>;
 }
 
 export function TextInput({
@@ -19,9 +20,11 @@ export function TextInput({
   onMicToggle,
   externalText,
   onExternalTextConsumed,
+  inputRef: externalRef,
 }: TextInputProps) {
   const [text, setText] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const internalRef = useRef<HTMLInputElement>(null);
+  const inputRef = externalRef ?? internalRef;
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 

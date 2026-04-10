@@ -98,6 +98,20 @@ pub async fn toggle_dashboard(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Toggle the main overlay window visibility.
+#[tauri::command]
+pub async fn toggle_overlay(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            window.hide().map_err(|e: tauri::Error| e.to_string())?;
+        } else {
+            window.show().map_err(|e: tauri::Error| e.to_string())?;
+            window.set_focus().map_err(|e: tauri::Error| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 /// Move the window by arrow key direction.
 #[tauri::command]
 pub async fn move_window(

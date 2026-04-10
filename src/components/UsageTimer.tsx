@@ -1,15 +1,36 @@
 import { useEffect, useRef, useState } from "react";
 
+const SESSION_START_KEY = "pluely_session_start";
+
+function getSessionStart(): number {
+  const stored = sessionStorage.getItem(SESSION_START_KEY);
+  if (stored) return Number(stored);
+  const now = Date.now();
+  sessionStorage.setItem(SESSION_START_KEY, String(now));
+  return now;
+}
+
 export function UsageTimer() {
-  const [seconds, setSeconds] = useState(0);
+  const [seconds, setSeconds] = useState(() =>
+    Math.floor((Date.now() - getSessionStart()) / 1000)
+  );
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    intervalRef.current = setInterval(() => {
-      setSeconds((s) => s + 1);
-    }, 1000);
+    const start = getSessionStart();
+    const tick = () => {
+      setSeconds(Math.floor((Date.now() - start) / 1000));
+    };
+    intervalRef.current = setInterval(tick, 1000);
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

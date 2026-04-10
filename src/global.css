@@ -45,7 +45,7 @@
   50%       { box-shadow: 0 0 12px 3px rgba(52, 211, 153, 0.4); }
 }
 
-/* ===== Glass opacity (adjustable at runtime via --glass-alpha) ===== */
+/* ===== Glass opacity (controlled via React) ===== */
 :root {
   --glass-alpha: 0.82;
 }
@@ -53,40 +53,49 @@
 /* ===== Base Styles ===== */
 @layer base {
   * { @apply border-border; }
+
   html, body, #root {
     height: 100%;
     width: 100%;
     overflow: hidden;
     background: transparent !important;
     @apply text-foreground;
+
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* ===== Minimal Dark Scrollbar ===== */
+/* ===== Scrollbar ===== */
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 2px;
 }
-::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
-
-/* ===== Tauri Region Utilities ===== */
-.no-drag   { -webkit-app-region: no-drag; }
-.drag-region { -webkit-app-region: drag; }
-
-/* ===== Glass Surface ===== */
-.glass {
-  background: rgba(8, 8, 18, var(--glass-alpha));
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
-/* ===== Intensity slider ===== */
+/* ===== Tauri Regions ===== */
+.no-drag { -webkit-app-region: no-drag; }
+.drag-region { -webkit-app-region: drag; }
+
+/* ===== ✅ FIXED GLASS SYSTEM ===== */
+.glass {
+  /* Background fades fully to transparent */
+  background: rgba(8, 8, 18, var(--glass-alpha));
+
+  /* Blur tied to transparency (CRITICAL FIX) */
+  backdrop-filter: blur(calc(var(--glass-alpha) * 28px)) saturate(160%);
+  -webkit-backdrop-filter: blur(calc(var(--glass-alpha) * 28px)) saturate(160%);
+
+  /* Border fades with transparency */
+  border: 1px solid rgba(255, 255, 255, calc(var(--glass-alpha) * 0.07));
+}
+
+/* ===== Slider ===== */
 input[type="range"].intensity-slider {
   -webkit-appearance: none;
   appearance: none;
@@ -96,9 +105,9 @@ input[type="range"].intensity-slider {
   background: rgba(255,255,255,0.12);
   outline: none;
 }
+
 input[type="range"].intensity-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  appearance: none;
   width: 12px;
   height: 12px;
   border-radius: 50%;
@@ -106,6 +115,7 @@ input[type="range"].intensity-slider::-webkit-slider-thumb {
   cursor: pointer;
   box-shadow: 0 0 6px rgba(99,102,241,0.6);
 }
+
 input[type="range"].intensity-slider::-moz-range-thumb {
   width: 12px;
   height: 12px;
@@ -116,38 +126,46 @@ input[type="range"].intensity-slider::-moz-range-thumb {
   box-shadow: 0 0 6px rgba(99,102,241,0.6);
 }
 
-/* ===== Message bubble entry animation ===== */
+/* ===== Messages ===== */
 .msg-in {
   animation: fadeInUp 0.18s ease-out forwards;
 }
 
 /* ===== Thinking dots ===== */
-.dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.4); }
+.dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.4);
+}
 .dot-1 { animation: dot-pulse 1.5s ease-in-out infinite; }
 .dot-2 { animation: dot-pulse 1.5s ease-in-out 0.2s infinite; }
 .dot-3 { animation: dot-pulse 1.5s ease-in-out 0.4s infinite; }
 
-/* ===== Toolbar icon button ===== */
+/* ===== Toolbar buttons ===== */
 .toolbar-icon-btn {
   @apply rounded-lg p-1.5 text-white/35 hover:text-white/80 transition-all duration-150 cursor-default;
-  &:hover { background: rgba(255,255,255,0.07); }
+}
+.toolbar-icon-btn:hover {
+  background: rgba(255,255,255,0.07);
 }
 
-/* ===== Active listening glow ===== */
+/* ===== Effects ===== */
 .listening-glow { animation: listening-ring 2s ease-in-out infinite; }
-
-/* ===== AI generating glow ===== */
 .generating-glow { animation: glow-pulse 2s ease-in-out infinite; }
 
-/* ===== Prose overrides for dark glass ===== */
+/* ===== Prose ===== */
 .glass-prose {
   color: rgba(255, 255, 255, 0.88);
   font-size: 0.8125rem;
   line-height: 1.6;
 }
-.glass-prose p  { margin: 0 0 0.5em; }
+
+.glass-prose p { margin: 0 0 0.5em; }
 .glass-prose p:last-child { margin-bottom: 0; }
 .glass-prose strong { color: rgba(255,255,255,0.95); }
+
 .glass-prose code {
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.1);
@@ -156,6 +174,7 @@ input[type="range"].intensity-slider::-moz-range-thumb {
   font-size: 0.85em;
   color: rgba(167, 139, 250, 0.95);
 }
+
 .glass-prose pre {
   background: rgba(0,0,0,0.45);
   border: 1px solid rgba(255,255,255,0.08);
@@ -164,25 +183,10 @@ input[type="range"].intensity-slider::-moz-range-thumb {
   overflow-x: auto;
   margin: 0.6em 0;
 }
+
 .glass-prose pre code {
   background: none;
   border: none;
   padding: 0;
   color: rgba(255,255,255,0.82);
-}
-.glass-prose h1,.glass-prose h2,.glass-prose h3 {
-  color: rgba(255,255,255,0.95);
-  font-weight: 600;
-  margin: 0.8em 0 0.3em;
-}
-.glass-prose ul,.glass-prose ol { padding-left: 1.2em; margin: 0.4em 0; }
-.glass-prose li { margin: 0.2em 0; }
-.glass-prose a { color: rgb(129, 140, 248); text-decoration: none; }
-.glass-prose a:hover { text-decoration: underline; }
-.glass-prose hr { border-color: rgba(255,255,255,0.08); margin: 0.6em 0; }
-.glass-prose blockquote {
-  border-left: 2px solid rgba(99,102,241,0.5);
-  padding-left: 0.75em;
-  color: rgba(255,255,255,0.55);
-  margin: 0.5em 0;
 }

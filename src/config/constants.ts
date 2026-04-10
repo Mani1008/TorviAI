@@ -11,9 +11,14 @@ export const STORAGE_KEYS = {
   CUSTOM_STT_PROVIDERS: "curl_custom_speech_providers",
   SELECTED_AI_PROVIDER: "curl_selected_ai_provider",
   SELECTED_STT_PROVIDER: "curl_selected_stt_provider",
+  SELECTED_MODEL: "pluely_selected_model",
   API_ENABLED: "pluely_api_enabled",
   RESPONSE_SETTINGS: "response_settings",
   SHORTCUTS: "shortcuts",
+  PROVIDER_MODE: "pluely_provider_mode",
+  BYOK_CONFIG: "pluely_byok_config",
+  ONBOARDED: "pluely_onboarded",
+  SESSION_COUNT: "pluely_session_count",
 } as const;
 
 /**

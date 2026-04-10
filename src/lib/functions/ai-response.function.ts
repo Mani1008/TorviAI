@@ -3,6 +3,7 @@ import type { TYPE_PROVIDER } from "@/types/provider.type";
 import { getByPath } from "./common.function";
 import { fetch } from "@tauri-apps/plugin-http";
 import { invoke } from "@tauri-apps/api/core";
+import { loadSelectedModel } from "@/lib/storage/ai-providers";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ interface StreamAIFromConfigParams {
   systemPrompt: string;
   images?: string[];
   abortSignal?: AbortSignal;
+  modelId?: string;
 }
 
 interface AiConfig {
@@ -323,46 +325,35 @@ async function* parseSSEStream(
 // Gets AI config (URL, auth headers) from Rust backend, then streams in the frontend.
 
 /**
- * Stream an AI response using config obtained from the Rust backend.
- * The API key never appears in frontend code — it comes from Rust via IPC.
+ * Shared: build messages + stream with a given AiConfig.
  */
-export async function* streamAIFromConfig(
-  params: StreamAIFromConfigParams
+async function* executeStreamWithConfig(
+  config: AiConfig,
+  messages: Message[],
+  systemPrompt: string,
+  images: string[] | undefined,
+  abortSignal: AbortSignal | undefined
 ): AsyncGenerator<string> {
-  const { messages, systemPrompt, abortSignal } = params;
-
-  if (abortSignal?.aborted) return;
-
-  // 1. Get AI config from Rust (includes URL, auth headers, body template)
-  let config: AiConfig;
-  try {
-    config = await invoke<AiConfig>("get_ai_config");
-  } catch (err) {
-    yield `Error: Failed to get AI config — ${err}`;
-    return;
-  }
-
-  // 2. Build messages array — system prompt as first message (OpenAI-compatible).
-  // OpenRouter/OpenAI use {role:"system"} inside messages, not a top-level field.
+  // Build messages array — system prompt as first message (OpenAI-compatible)
   const fullMessages: Message[] = [];
   if (systemPrompt) {
     fullMessages.push({ role: "system", content: systemPrompt });
   }
   const historyMessages = messages.filter((m) => m.role !== "system");
 
-  // If images are provided, make the last user message multipart (text + image_url)
   if (images && images.length > 0) {
-    const lastUserIdx = [...historyMessages].map(m => m.role).lastIndexOf("user");
+    const lastUserIdx = [...historyMessages].map((m) => m.role).lastIndexOf("user");
     for (let i = 0; i < historyMessages.length; i++) {
       if (i === lastUserIdx) {
-        const textContent = typeof historyMessages[i].content === "string"
-          ? historyMessages[i].content as string
-          : "";
+        const textContent =
+          typeof historyMessages[i].content === "string"
+            ? (historyMessages[i].content as string)
+            : "";
         fullMessages.push({
           role: "user",
           content: [
             { type: "text", text: textContent },
-            ...images.map(url => ({ type: "image_url" as const, image_url: { url } })),
+            ...images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
           ],
         });
       } else {
@@ -373,7 +364,6 @@ export async function* streamAIFromConfig(
     fullMessages.push(...historyMessages);
   }
 
-  // 3. Build request body — replace {{MESSAGES_JSON}} placeholder
   const messagesJson = JSON.stringify(fullMessages);
   const body = config.body_template.replace('"{{MESSAGES_JSON}}"', messagesJson);
 
@@ -405,4 +395,27 @@ export async function* streamAIFromConfig(
     if ((err as Error).name === "AbortError") return;
     yield `Error: ${(err as Error).message}`;
   }
+}
+
+/**
+ * Stream an AI response using config obtained from the Rust backend.
+ * The API key is managed by Pluely — users only select a model.
+ */
+export async function* streamAIFromConfig(
+  params: StreamAIFromConfigParams
+): AsyncGenerator<string> {
+  const { messages, systemPrompt, images, abortSignal, modelId } = params;
+
+  if (abortSignal?.aborted) return;
+
+  const resolvedModel = modelId ?? loadSelectedModel();
+  let config: AiConfig;
+  try {
+    config = await invoke<AiConfig>("get_ai_config", { modelId: resolvedModel });
+  } catch (err) {
+    yield `Error: Failed to get AI config — ${err}`;
+    return;
+  }
+
+  yield* executeStreamWithConfig(config, messages, systemPrompt, images, abortSignal);
 }

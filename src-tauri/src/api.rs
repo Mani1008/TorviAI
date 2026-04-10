@@ -23,11 +23,13 @@ pub struct AiConfig {
 
 /// Return the AI provider configuration (URL, auth headers, body template).
 /// The frontend uses this to make the streaming HTTP call.
+/// `model_id` — optional OpenRouter model ID; falls back to .env OPENROUTER_MODEL.
 #[tauri::command]
-pub async fn get_ai_config() -> Result<AiConfig, String> {
+pub async fn get_ai_config(model_id: Option<String>) -> Result<AiConfig, String> {
     let api_key = env_var("OPENROUTER_API_KEY")?;
-    let model = env::var("OPENROUTER_MODEL")
+    let default_model = env::var("OPENROUTER_MODEL")
         .unwrap_or_else(|_| "nvidia/nemotron-3-super-120b-a12b:free".to_string());
+    let model = model_id.filter(|s| !s.is_empty()).unwrap_or(default_model);
 
     let mut headers = std::collections::HashMap::new();
     headers.insert("Content-Type".to_string(), "application/json".to_string());

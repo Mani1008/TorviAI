@@ -1,31 +1,39 @@
 # Architecture of Desktop AI Assistant
 
-# Progress Update v0.1 (March 2026)
+# Progress Update v0.2 (April 2026)
 
-**This section summarizes the current state of Pluely as of March 2026.**
+**This section summarizes the current state of Pluely as of April 2026.**
 
 - **Tauri 2 + React 19 + TypeScript 5.8**: Modern, cross-platform desktop app with a transparent overlay window.
-- **Premium Glassmorphism UI**: Fully custom dark glass overlay, fixed-size (600x600), no scroll/cut, with live glass intensity slider.
-- **AI Chat**: Streaming chat with OpenRouter (Nvidia Nemotron) and other OpenAI-compatible providers. System prompt and message array serialization fixed for API compatibility.
+- **Premium Glassmorphism UI**: Fully custom dark glass overlay pill bar (600×44px collapsed, 600×600px expanded). Live glass intensity slider with keyboard shortcuts (`Ctrl+[`/`Ctrl+]`). Default transparency at 18% for near-invisible look.
+- **AI Chat**: Streaming chat with OpenRouter and other OpenAI-compatible providers. Supports multipart vision messages (text + image_url).
+- **Screen Analysis**: Full-screen capture via `xcap` crate → base64 PNG → AI vision model for screenshot analysis.
 - **System Audio Transcription**: Real-time system audio capture (WASAPI) with AssemblyAI streaming STT, routed into main chat flow.
+- **Microphone Input**: Push-to-talk/toggle mic via WebSpeech API, transcript injected into chat input.
 - **Error Handling**: Robust error banners for API and STT failures, with deduplication and clear user feedback.
 - **Persistent History**: SQLite-backed chat history, system prompts, and settings.
-- **Global Shortcuts**: System-wide keyboard shortcuts for overlay control.
-- **Overlay Window System**: Fixed-size, non-resizable, non-scrollable, always-on-top, with true transparency and no shadow artifacts.
-- **Theming**: All UI is dark-mode only, with forced `dark` class for consistent markdown rendering.
+- **Global Shortcuts (Rust-registered)**: `Ctrl+Shift+H` (smart toggle: show/focus/hide), `Ctrl+Shift+I` (show + focus input). Work system-wide from any app.
+- **In-App Shortcuts**: `Ctrl+Shift+S` (screenshot), `Ctrl+Shift+A` (system audio), `Ctrl+Shift+M` (mic), `Ctrl+Shift+D` (dashboard), `Ctrl+Shift+X` (clear chat), `Ctrl+[`/`]` (glass intensity), `Ctrl+Arrow` (move window), `Escape` (close panel).
+- **Overlay Window System**: Dynamic height (44px collapsed → 110px with intensity slider → 600px expanded). Non-resizable, always-on-top, `WS_EX_TOOLWINDOW` style to hide from taskbar. True transparency, no shadow artifacts.
+- **Toolbar Layout**: Left: grip (drag) → mic (neon green glow) → system audio (neon emerald glow) → trash. Center: text input. Right: send → camera → stop → glass → timer → settings.
+- **Session Timer**: Wall-clock timer persisted in `sessionStorage` — survives sleep, visibility changes, and component remounts.
+- **Theming**: Dark-mode only, glass alpha driven by CSS variable `--glass-alpha` adjustable at runtime.
 - **Extensible Providers**: Easy to add new AI or STT providers via config.
 
-**Key Recent Fixes:**
-- Window transparency and shadow issues resolved for Windows (no more white/black box artifacts).
-- Overlay window is always 600x600px; all panel expansion/collapse is handled by React state, not window size.
-- Glass intensity slider updates a CSS variable (`--glass-alpha`) for live glass effect, persisted via context/localStorage.
-- All scrolling is disabled at the window level; content is always clipped to the fixed overlay.
-- API 400/JSON errors are now surfaced in the UI, and message serialization is robust against malformed payloads.
+**Key Changes Since v0.1:**
+- Window is now dynamically resized (44px/110px/600px) instead of fixed 600×600. Click-through when collapsed.
+- Drag now only on grip dots via `startDragging()`, not the entire toolbar.
+- Removed all box-shadow artifacts from toolbar, response panel, and intensity popover.
+- Global shortcuts registered in Rust via `tauri-plugin-global-shortcut` `on_shortcut()` in setup. Emits `focus-input` event to frontend.
+- Screen capture pipeline: xcap → PNG → base64 → multipart AI vision message.
+- Timer uses `sessionStorage` start timestamp + `visibilitychange` listener for accurate elapsed time across sleep cycles.
+- Mic and system audio buttons moved to left side of toolbar with neon glow indicators.
+- History (MessageSquare) button removed from pill bar.
 
 **Known Limitations:**
-- Overlay is always fixed size; resizing logic is disabled for stability.
 - Only dark mode is supported (by design for overlay clarity).
-- All content must fit within the fixed window; overflow is clipped.
+- Global shortcuts are hardcoded; custom binding editor is TODO.
+- SQLite history wiring to dashboard views is partially complete.
 
 ---
 

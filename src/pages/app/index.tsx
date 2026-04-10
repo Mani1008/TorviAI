@@ -6,19 +6,23 @@ import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { useSystemAudio } from "@/hooks/useSystemAudio";
 import { useTheme } from "@/contexts/theme.context";
 import { UsageTimer } from "@/components/UsageTimer";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useToast } from "@/hooks/useToast";
+import { ToastContainer } from "@/components/Toast";
 import {
   Settings,
   Square,
   Trash2,
   X,
   AlertCircle,
-  MessageSquare,
   GripVertical,
   Headphones,
   HeadphoneOff,
   Sparkles,
   Contrast,
   Camera,
+  Mic,
+  MicOff,
 } from "lucide-react";
 // ─── Thinking indicator ───────────────────────────────────────────────────────
 function ThinkingDots() {
@@ -56,10 +60,13 @@ export default function App() {
     clearError: clearSystemError,
   } = useSystemAudio(sendMessage);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [sttText, setSttText] = useState("");
   const [showIntensity, setShowIntensity] = useState(false);
+  const [screenImage, setScreenImage] = useState<string | null>(null);
   const { transparency, setTransparency } = useTheme();
+  const toast = useToast();
   const glassAlpha = transparency / 100;
 
   const handleListenToggle = useCallback(() => {
@@ -97,18 +104,24 @@ export default function App() {
     // Do NOT scroll during streaming
   }, [isLoading, messages]);
 
-  // Resize window to match content: 44px (toolbar only) or 600px (with panel)
+  // Resize window to match content: 44px (toolbar only), 110px (intensity popover), or 600px (panel)
   useEffect(() => {
     import("@tauri-apps/api/core").then(({ invoke }) => {
-      invoke("set_window_height", { height: isExpanded ? 600 : 44 }).catch(() => {});
+      let height = 44;
+      if (isExpanded) height = 600;
+      else if (showIntensity) height = 110;
+      invoke("set_window_height", { height }).catch(() => {});
     });
-  }, [isExpanded]);
+  }, [isExpanded, showIntensity]);
 
   const openDashboard = async () => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("open_dashboard");
-    } catch (e) { console.error("Failed to open dashboard:", e); }
+    } catch (e) {
+      console.error("Failed to open dashboard:", e);
+      toast.error("Could not open dashboard");
+    }
   };
 
   const handleClear = () => {
@@ -119,19 +132,97 @@ export default function App() {
 
   const responseCount = messages.filter((m) => m.role === "assistant").length;
 
-  const [screenImage, setScreenImage] = useState<string | null>(null);
   const handleScreenAnalysis = async () => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const imgData: string = await invoke("start_screen_capture");
       setScreenImage(imgData);
       setIsExpanded(true);
-      // Send screenshot to AI for analysis
       await sendMessage("Analyze this screenshot and describe what you see.", [imgData]);
     } catch (e) {
       console.error("Screen analysis failed:", e);
+      toast.error("Screen analysis failed");
     }
   };
+
+  // Listen for global shortcut "focus-input" event from Rust
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("focus-input", () => {
+        inputRef.current?.focus();
+      }).then((fn) => { unlisten = fn; });
+    });
+    return () => { unlisten?.(); };
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Escape — no modifier needed
+      if (e.key === "Escape") {
+        if (isExpanded) handleClear();
+        return;
+      }
+
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
+      switch (true) {
+        case e.shiftKey && e.key === "I":
+          e.preventDefault();
+          inputRef.current?.focus();
+          break;
+        case e.shiftKey && e.key === "S":
+          e.preventDefault();
+          handleScreenAnalysis();
+          break;
+        case e.shiftKey && e.key === "A":
+          e.preventDefault();
+          handleListenToggle();
+          break;
+        case e.shiftKey && e.key === "M":
+          e.preventDefault();
+          handleMicToggle();
+          break;
+        case e.shiftKey && e.key === "D":
+          e.preventDefault();
+          openDashboard();
+          break;
+        case e.shiftKey && e.key === "X":
+          e.preventDefault();
+          handleClear();
+          break;
+        case e.key === "[":
+          e.preventDefault();
+          setTransparency(Math.max(25, transparency - 5));
+          break;
+        case e.key === "]":
+          e.preventDefault();
+          setTransparency(Math.min(100, transparency + 5));
+          break;
+        // Ctrl+Arrow — move window
+        case e.key === "ArrowUp":
+          e.preventDefault();
+          import("@tauri-apps/api/core").then(({ invoke }) => invoke("move_window", { direction: "up", step: 20 }));
+          break;
+        case e.key === "ArrowDown":
+          e.preventDefault();
+          import("@tauri-apps/api/core").then(({ invoke }) => invoke("move_window", { direction: "down", step: 20 }));
+          break;
+        case e.key === "ArrowLeft":
+          e.preventDefault();
+          import("@tauri-apps/api/core").then(({ invoke }) => invoke("move_window", { direction: "left", step: 20 }));
+          break;
+        case e.key === "ArrowRight":
+          e.preventDefault();
+          import("@tauri-apps/api/core").then(({ invoke }) => invoke("move_window", { direction: "right", step: 20 }));
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleListenToggle, handleMicToggle, isExpanded, transparency]);
 
   return (
     <div
@@ -139,11 +230,14 @@ export default function App() {
       style={{ "--glass-alpha": String(glassAlpha) } as React.CSSProperties}
     >
 
+      {/* Toast notifications */}
+      <ToastContainer />
+
       {/* Intensity slider popover — outside toolbar so it's not clipped */}
       {showIntensity && (
         <div
           className="absolute top-11 right-2 z-50 glass rounded-xl px-3.5 py-2.5 no-drag
-            shadow-[0_4px_20px_rgba(0,0,0,0.55)] flex items-center gap-2.5"
+            flex items-center gap-2.5"
         >
           <Contrast className="h-3 w-3 text-white/35 shrink-0" />
           <input
@@ -164,22 +258,46 @@ export default function App() {
       {/* ══════════════ TOOLBAR PILL ══════════════ */}
       <div
         className={`
-          toolbar-bar drag-region glass
+          toolbar-bar glass
           flex items-center gap-1 px-2 h-10 min-h-10
           rounded-full mx-0.5 mt-0.5 overflow-hidden
-          shadow-[0_8px_32px_rgba(0,0,0,0.5)]
           transition-all duration-300
           ${capturing ? "listening-glow" : ""}
           ${isLoading ? "generating-glow" : ""}
         `}
       >
-        {/* Left — grip + clear */}
-        <div className="no-drag flex items-center gap-0.5 pl-0.5">
-          <button className="toolbar-icon-btn" title="Move window">
+        {/* Left — grip (drag) + audio toggles + clear */}
+        <div className="flex items-center gap-0.5 pl-0.5">
+          <button
+            className="toolbar-icon-btn cursor-move drag-region"
+            title="Drag to move"
+            onMouseDown={() => getCurrentWindow().startDragging().catch(() => {})}
+          >
             <GripVertical className="h-4 w-4" />
           </button>
+
+          {/* Mic toggle — neon green when active */}
+          <button
+            onClick={handleMicToggle}
+            className="toolbar-icon-btn no-drag"
+            style={isMicListening ? { color: "#4ade80", filter: "drop-shadow(0 0 6px #4ade80)" } : {}}
+            title={isMicListening ? "Stop mic" : "Microphone (Ctrl+Shift+M)"}
+          >
+            {isMicListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+          </button>
+
+          {/* System audio toggle — neon emerald when active */}
+          <button
+            onClick={handleListenToggle}
+            className="toolbar-icon-btn no-drag"
+            style={capturing ? { color: "#34d399", filter: "drop-shadow(0 0 6px #34d399)" } : {}}
+            title={capturing ? "Stop system audio" : "System audio (Ctrl+Shift+A)"}
+          >
+            {capturing ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
+          </button>
+
           {(messages.length > 0 || error) && (
-            <button onClick={handleClear} className="toolbar-icon-btn" title="New conversation">
+            <button onClick={handleClear} className="toolbar-icon-btn no-drag" title="New conversation">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           )}
@@ -191,9 +309,9 @@ export default function App() {
             onSend={sendMessage}
             isLoading={isLoading}
             isListening={isMicListening}
-            onMicToggle={handleMicToggle}
             externalText={sttText}
             onExternalTextConsumed={() => setSttText("")}
+            inputRef={inputRef}
           />
         </div>
 
@@ -202,22 +320,9 @@ export default function App() {
           <button
             onClick={handleScreenAnalysis}
             className="toolbar-icon-btn"
-            title="Screen Analysis"
+            title="Screen Analysis (Ctrl+Shift+S)"
           >
             <Camera className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={handleListenToggle}
-            className={`toolbar-icon-btn ${
-              capturing
-                ? "text-emerald-400! hover:text-emerald-300!"
-                : ""
-            }`}
-            title={capturing ? "Stop listening" : "Listen to system audio"}
-          >
-            {capturing
-              ? <HeadphoneOff className="h-4 w-4" />
-              : <Headphones className="h-4 w-4" />}
           </button>
 
           {isLoading && (
@@ -230,9 +335,6 @@ export default function App() {
             </button>
           )}
 
-          <button onClick={openDashboard} className="toolbar-icon-btn" title="History">
-            <MessageSquare className="h-3.5 w-3.5" />
-          </button>
           <button
             onClick={() => setShowIntensity((v) => !v)}
             className={`toolbar-icon-btn ${showIntensity ? "text-indigo-400!" : ""}`}
@@ -253,7 +355,6 @@ export default function App() {
           className="
             flex-1 flex flex-col mx-0.5 mt-1 mb-0.5
             rounded-2xl glass
-            shadow-[0_16px_48px_rgba(0,0,0,0.6)]
             overflow-hidden min-h-0
           "
         >

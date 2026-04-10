@@ -30,7 +30,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const [transparency, setTransparencyState] = useState(() => {
     const stored = localStorage.getItem("transparency");
-    return stored ? Number(stored) : 100;
+    return stored ? Math.min(97, Math.max(15, Number(stored))) : 18;
   });
 
   useEffect(() => {

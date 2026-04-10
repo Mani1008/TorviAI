@@ -1,5 +1,6 @@
 import { safeLocalStorage } from "./helper";
 import { STORAGE_KEYS } from "@/config/constants";
+import { DEFAULT_MODEL_ID } from "@/config/models.constants";
 import type { TYPE_PROVIDER } from "@/types/provider.type";
 
 /**
@@ -36,4 +37,18 @@ export function saveSelectedAIProvider(
     STORAGE_KEYS.SELECTED_AI_PROVIDER,
     JSON.stringify({ provider, variables })
   );
+}
+
+/**
+ * Save the selected OpenRouter model ID.
+ */
+export function saveSelectedModel(modelId: string): void {
+  safeLocalStorage.setItem(STORAGE_KEYS.SELECTED_MODEL, modelId);
+}
+
+/**
+ * Load the selected OpenRouter model ID.
+ */
+export function loadSelectedModel(): string {
+  return safeLocalStorage.getItem(STORAGE_KEYS.SELECTED_MODEL) ?? DEFAULT_MODEL_ID;
 }

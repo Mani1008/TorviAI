@@ -8,6 +8,9 @@ export {
   deleteAllConversations,
   addMessage,
   getMessagesByConversation,
+  getTotalConversationCount,
+  getTodayMessageCount,
+  getTotalMessageCount,
 } from "./chat-history";
 export {
   initSystemPromptsTable,

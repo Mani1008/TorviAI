@@ -1,4 +1,5 @@
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod api;
 mod capture;
@@ -38,6 +39,38 @@ pub fn run() {
             // Position window at top center of screen
             window::setup_main_window(&main_window)?;
 
+            // Register global shortcut: Ctrl+Shift+H → smart toggle overlay
+            // Hidden → show+focus | Visible+unfocused → focus | Visible+focused → hide
+            let h1 = app.handle().clone();
+            app.global_shortcut().on_shortcut("ctrl+shift+h", move |_app, _shortcut, event| {
+                if event.state == ShortcutState::Pressed {
+                    if let Some(w) = h1.get_webview_window("main") {
+                        let visible = w.is_visible().unwrap_or(false);
+                        let focused = w.is_focused().unwrap_or(false);
+                        if !visible {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        } else if !focused {
+                            let _ = w.set_focus();
+                        } else {
+                            let _ = w.hide();
+                        }
+                    }
+                }
+            }).unwrap_or_else(|e| eprintln!("[GlobalShortcut] Failed to register Ctrl+Shift+H: {}", e));
+
+            // Register global shortcut: Ctrl+Shift+I → focus overlay + input field
+            let h2 = app.handle().clone();
+            app.global_shortcut().on_shortcut("ctrl+shift+i", move |_app, _shortcut, event| {
+                if event.state == ShortcutState::Pressed {
+                    if let Some(w) = h2.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                        let _ = w.emit("focus-input", ());
+                    }
+                }
+            }).unwrap_or_else(|e| eprintln!("[GlobalShortcut] Failed to register Ctrl+Shift+I: {}", e));
+
             Ok(())
         })
         // --- IPC Command Handlers ---
@@ -46,6 +79,7 @@ pub fn run() {
             window::set_window_height,
             window::open_dashboard,
             window::toggle_dashboard,
+            window::toggle_overlay,
             window::move_window,
             // Screenshot commands
             capture::start_screen_capture,

@@ -170,3 +170,30 @@ export async function getMessagesByConversation(
     attachedFiles: row.attached_files ? JSON.parse(row.attached_files) : undefined,
   }));
 }
+
+export async function getTotalConversationCount(): Promise<number> {
+  const conn = await getDb();
+  const rows = await conn.select<[{ count: number }]>(
+    "SELECT COUNT(*) as count FROM conversations"
+  );
+  return rows[0]?.count ?? 0;
+}
+
+export async function getTodayMessageCount(): Promise<number> {
+  const conn = await getDb();
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const rows = await conn.select<[{ count: number }]>(
+    "SELECT COUNT(*) as count FROM messages WHERE timestamp >= $1",
+    [startOfDay.getTime()]
+  );
+  return rows[0]?.count ?? 0;
+}
+
+export async function getTotalMessageCount(): Promise<number> {
+  const conn = await getDb();
+  const rows = await conn.select<[{ count: number }]>(
+    "SELECT COUNT(*) as count FROM messages"
+  );
+  return rows[0]?.count ?? 0;
+}

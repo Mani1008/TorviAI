@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from "react";
+import { useToast } from "@/hooks/useToast";
 
 // Web Speech API types (not included in all TS configs)
 interface SpeechRecognitionEvent {
@@ -34,6 +35,7 @@ declare global {
  * Works in Chromium-based WebViews (Tauri uses WebView2 on Windows).
  */
 export function useSpeechToText() {
+  const toast = useToast();
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
@@ -43,6 +45,7 @@ export function useSpeechToText() {
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       console.error("[STT] SpeechRecognition not supported");
+      toast.error("Microphone input is not supported in this environment");
       return;
     }
 
@@ -72,6 +75,9 @@ export function useSpeechToText() {
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error("[STT] Error:", event.error);
+      if (event.error !== "no-speech" && event.error !== "aborted") {
+        toast.error(`Microphone error: ${event.error}`);
+      }
       setIsListening(false);
     };
 
