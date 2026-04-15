@@ -58,7 +58,7 @@
     height: 100%;
     width: 100%;
     overflow: hidden;
-    background: transparent !important;
+    background: oklch(0.085 0.012 261);
     @apply text-foreground;
 
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;

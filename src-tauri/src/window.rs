@@ -37,12 +37,52 @@ pub fn setup_main_window(window: &WebviewWindow) -> Result<(), Box<dyn std::erro
         }
     }
 
-    let _ = window.show();
+    // Pill bar starts hidden — shown only after the user authenticates via the gate window.
+    // Call unlock_app from the frontend once auth is confirmed.
 
     // Hide from taskbar Apps section → move to Background Processes
     #[cfg(target_os = "windows")]
     apply_background_process_style(window);
 
+    Ok(())
+}
+
+/// Called from the frontend after successful authentication.
+/// Shows the pill bar and hides the gate window.
+#[tauri::command]
+pub async fn unlock_app(app: AppHandle) -> Result<(), String> {
+    // Show the pill bar
+    if let Some(main) = app.get_webview_window("main") {
+        main.show().map_err(|e: tauri::Error| e.to_string())?;
+        main.set_focus().map_err(|e: tauri::Error| e.to_string())?;
+    }
+    // Hide the gate window (don't destroy — user can open it again from Settings)
+    if let Some(gate) = app.get_webview_window("gate") {
+        gate.hide().map_err(|e: tauri::Error| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Opens (or shows) the gate/auth window.
+#[tauri::command]
+pub async fn open_gate(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("gate") {
+        window.show().map_err(|e: tauri::Error| e.to_string())?;
+        window.set_focus().map_err(|e: tauri::Error| e.to_string())?;
+        return Ok(());
+    }
+    let url = WebviewUrl::App("/gate".into());
+    let window = tauri::WebviewWindowBuilder::new(&app, "gate", url)
+        .title("Pluely — Sign In")
+        .inner_size(480.0, 600.0)
+        .resizable(false)
+        .center()
+        .visible(true)
+        .decorations(true)
+        .skip_taskbar(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let _ = window;
     Ok(())
 }
 

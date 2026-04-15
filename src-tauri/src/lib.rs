@@ -2,6 +2,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod api;
+mod auth;
 mod capture;
 mod shortcuts;
 mod speaker;
@@ -38,6 +39,13 @@ pub fn run() {
 
             // Position window at top center of screen
             window::setup_main_window(&main_window)?;
+
+            // Open the auth gate window immediately on startup.
+            // The gate will call unlock_app once the user is authenticated.
+            let gate_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                window::open_gate(gate_handle).await.ok();
+            });
 
             // Register global shortcut: Ctrl+Shift+H → smart toggle overlay
             // Hidden → show+focus | Visible+unfocused → focus | Visible+focused → hide
@@ -76,6 +84,8 @@ pub fn run() {
         // --- IPC Command Handlers ---
         .invoke_handler(tauri::generate_handler![
             // Window commands
+            window::unlock_app,
+            window::open_gate,
             window::set_window_height,
             window::open_dashboard,
             window::toggle_dashboard,
@@ -101,6 +111,8 @@ pub fn run() {
             speaker::commands::get_audio_devices,
             speaker::commands::check_audio_permissions,
             speaker::commands::request_audio_permissions,
+            // Auth commands
+            auth::start_oauth_callback_server,
             // API commands
             api::get_ai_config,
             api::check_license_status,

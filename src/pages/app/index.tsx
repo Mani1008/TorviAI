@@ -9,6 +9,16 @@ import { UsageTimer } from "@/components/UsageTimer";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useToast } from "@/hooks/useToast";
 import { ToastContainer } from "@/components/Toast";
+
+// The pill bar is the only transparent window — override the global dark background
+function useTransparentWindow() {
+  useEffect(() => {
+    document.documentElement.style.background = "transparent";
+    document.body.style.background = "transparent";
+    const root = document.getElementById("root");
+    if (root) root.style.background = "transparent";
+  }, []);
+}
 import {
   Settings,
   Square,
@@ -46,6 +56,7 @@ function StatusChip({ label, pulse = false }: { label: string; pulse?: boolean }
 }
 
 export default function App() {
+  useTransparentWindow();
   const { messages, isLoading, error, sendMessage, abort, clearMessages, clearError } =
     useCompletion();
   const { isListening: isMicListening, transcript, stop: stopListening, toggle: toggleMic } = useSpeechToText();

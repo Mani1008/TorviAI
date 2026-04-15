@@ -19,7 +19,13 @@ export const STORAGE_KEYS = {
   BYOK_CONFIG: "pluely_byok_config",
   ONBOARDED: "pluely_onboarded",
   SESSION_COUNT: "pluely_session_count",
+  AUTH_TOKEN: "pluely_auth_token",
 } as const;
+
+/** Base URL of the landing page / web app (set in .env) */
+export const APP_URL = import.meta.env.VITE_APP_URL || "http://localhost:3000";
+/** Base URL for the web API */
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
 
 /**
  * Default system prompt for new conversations.

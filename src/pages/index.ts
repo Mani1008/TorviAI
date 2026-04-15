@@ -1,4 +1,5 @@
 export { default as App } from "./app";
+export { default as Gate } from "./gate";
 export { default as Dashboard } from "./dashboard";
 export { default as Chats } from "./chats";
 export { default as Settings } from "./settings";

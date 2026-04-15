@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router";
 import { DashboardLayout } from "@/layouts";
 import App from "@/pages/app";
+import Gate from "@/pages/gate";
 import Dashboard from "@/pages/dashboard";
 import Chats from "@/pages/chats";
 import ChatView from "@/pages/chats/view";
@@ -15,6 +16,10 @@ export const router = createBrowserRouter([
   {
     path: "/",
     element: <App />,
+  },
+  {
+    path: "/gate",
+    element: <Gate />,
   },
   {
     element: <DashboardLayout />,

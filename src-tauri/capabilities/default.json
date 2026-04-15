@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capabilities for the app",
-  "windows": ["main", "dashboard"],
+  "windows": ["main", "dashboard", "gate"],
   "permissions": [
     "core:default",
     "core:window:default",
