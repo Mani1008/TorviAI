@@ -11,6 +11,7 @@ import Shortcuts from "@/pages/shortcuts";
 import Screenshot from "@/pages/screenshot";
 import Audio from "@/pages/audio";
 import Responses from "@/pages/responses";
+import Billing from "@/pages/billing";
 
 export const router = createBrowserRouter([
   {
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: "/screenshot", element: <Screenshot /> },
       { path: "/audio", element: <Audio /> },
       { path: "/responses", element: <Responses /> },
+      { path: "/billing", element: <Billing /> },
     ],
   },
 ]);

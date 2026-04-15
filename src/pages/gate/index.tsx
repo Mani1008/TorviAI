@@ -5,6 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { Sparkles, Loader2 } from "lucide-react";
 import { APP_URL } from "@/config/constants";
 import { saveAuthToken, verifyToken } from "@/lib/auth";
+import { saveUserProfile } from "@/lib/storage/auth";
 
 // ─── Local HTTP callback server ───────────────────────────────────────────────
 // Rust command `start_oauth_callback_server` binds a random loopback port and
@@ -25,7 +26,13 @@ export default function Gate() {
   useEffect(() => {
     verifyToken().then((user) => {
       if (user) {
-        // Already authenticated — unlock immediately
+        // Already authenticated — save profile and unlock immediately
+        saveUserProfile({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          plan: (user.plan as "starter" | "plus" | "pro") || "starter",
+        });
         invoke("unlock_app").catch(console.error);
         setStatus("done");
       } else {
@@ -44,6 +51,12 @@ export default function Gate() {
       saveAuthToken(token);
       const user = await verifyToken();
       if (user) {
+        saveUserProfile({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          plan: (user.plan as "starter" | "plus" | "pro") || "starter",
+        });
         invoke("unlock_app").catch(console.error);
         setStatus("done");
       } else {

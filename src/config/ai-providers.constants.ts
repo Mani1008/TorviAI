@@ -75,4 +75,14 @@ export const AI_PROVIDERS: TYPE_PROVIDER[] = [
   -H "Content-Type: application/json" \\
   -d '{"model": "{{MODEL}}", "stream": true, "messages": [{"role": "system", "content": "{{SYSTEM_PROMPT}}"}, {"role": "user", "content": "{{TEXT}}"}]}'`,
   },
+  {
+    id: "nvidia",
+    name: "NVIDIA NIM",
+    streaming: true,
+    responseContentPath: "choices[0].delta.content",
+    curl: `curl -X POST https://integrate.api.nvidia.com/v1/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer {{API_KEY}}" \\
+  -d '{"model": "{{MODEL}}", "stream": true, "max_tokens": 16384, "temperature": 1.0, "top_p": 0.95, "messages": [{"role": "system", "content": "{{SYSTEM_PROMPT}}"}, {"role": "user", "content": "{{TEXT}}"}]}'`,
+  },
 ];

@@ -8,9 +8,9 @@ import {
   Mic,
   FileText,
   SlidersHorizontal,
+  CreditCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { UsageTimer } from "./UsageTimer";
 
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
@@ -20,6 +20,7 @@ const navItems = [
   { to: "/screenshot", icon: Camera, label: "Screenshot" },
   { to: "/audio", icon: Mic, label: "Audio" },
   { to: "/responses", icon: SlidersHorizontal, label: "Responses" },
+  { to: "/billing", icon: CreditCard, label: "Billing" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
@@ -32,46 +33,23 @@ export function Sidebar() {
         </h1>
       </div>
       <nav className="flex flex-1 flex-col gap-1">
-        {navItems.map(({ to, icon: Icon, label }, idx) => {
-          // Insert UsageTimer before the settings icon
-          if (label === "Settings") {
-            return [
-              <UsageTimer key="usage-timer" />, 
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                  )
-                }
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {label}
-              </NavLink>
-            ];
-          }
-          return (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                )
-              }
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {label}
-            </NavLink>
-          );
-        })}
+        {navItems.map(({ to, icon: Icon, label }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+              )
+            }
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            {label}
+          </NavLink>
+        ))}
       </nav>
     </aside>
   );

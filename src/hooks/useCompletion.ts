@@ -6,6 +6,7 @@ import {
   createConversation,
   addMessage,
 } from "@/lib/database";
+import { incrementAiResponses } from "@/lib/storage/usage-stats";
 
 /**
  * Hook for the main overlay chat.
@@ -77,7 +78,7 @@ export function useCompletion() {
           setMessages((prev) => {
             const updated = [...prev];
             const lastMsg = updated[updated.length - 1];
-            if (lastMsg.role === "assistant") {
+            if (lastMsg && lastMsg.role === "assistant") {
               lastMsg.content = assistantMessage.content;
             }
             return updated;
@@ -108,6 +109,8 @@ export function useCompletion() {
           addMessage(conversationIdRef.current, assistantMessage).catch(
             console.error
           );
+          // Track AI response for usage/billing
+          incrementAiResponses();
         }
       }
     },

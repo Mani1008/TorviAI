@@ -1,49 +1,35 @@
 import { useEffect, useRef, useState } from "react";
-
-const SESSION_START_KEY = "pluely_session_start";
-
-function getSessionStart(): number {
-  const stored = sessionStorage.getItem(SESSION_START_KEY);
-  if (stored) return Number(stored);
-  const now = Date.now();
-  sessionStorage.setItem(SESSION_START_KEY, String(now));
-  return now;
-}
+import { loadUsageStats } from "@/lib/storage/usage-stats";
+import { Headphones, Sparkles } from "lucide-react";
 
 export function UsageTimer() {
-  const [seconds, setSeconds] = useState(() =>
-    Math.floor((Date.now() - getSessionStart()) / 1000)
-  );
+  const [listeningSeconds, setListeningSeconds] = useState(0);
+  const [aiResponses, setAiResponses] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    const start = getSessionStart();
     const tick = () => {
-      setSeconds(Math.floor((Date.now() - start) / 1000));
+      const stats = loadUsageStats();
+      setListeningSeconds(stats.listeningSeconds);
+      setAiResponses(stats.aiResponses);
     };
+    tick();
     intervalRef.current = setInterval(tick, 1000);
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") tick();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
   const pad = (n: number) => n.toString().padStart(2, "0");
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
+  const h = Math.floor(listeningSeconds / 3600);
+  const m = Math.floor((listeningSeconds % 3600) / 60);
+  const s = listeningSeconds % 60;
 
   return (
     <div
-      title="Session duration"
+      title="Listening time / AI responses this period"
       className="
-        flex items-center gap-1
+        flex items-center gap-2
         px-2 py-1
         rounded-full
         text-[11px] font-medium
@@ -57,12 +43,21 @@ export function UsageTimer() {
         tracking-wider
       "
     >
-      {/* optional subtle dot */}
-      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+      {/* Listening time */}
+      <span className="flex items-center gap-1">
+        <Headphones className="h-3 w-3 text-emerald-400/70" />
+        <span>
+          {h > 0 ? `${pad(h)}:` : ""}
+          {pad(m)}:{pad(s)}
+        </span>
+      </span>
 
-      <span>
-        {h > 0 ? `${pad(h)}:` : ""}
-        {pad(m)}:{pad(s)}
+      <span className="text-white/20">|</span>
+
+      {/* AI responses */}
+      <span className="flex items-center gap-1">
+        <Sparkles className="h-3 w-3 text-indigo-400/70" />
+        <span>{aiResponses}</span>
       </span>
     </div>
   );

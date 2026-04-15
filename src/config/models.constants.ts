@@ -14,6 +14,8 @@ export interface ModelOption {
   supportsVision: boolean;
   isFree: boolean;
   recommended?: boolean;
+  /** When set, this model routes to the given provider instead of OpenRouter. */
+  providerTag?: "nvidia";
 }
 
 export type ModelCategory =
@@ -32,6 +34,72 @@ export const MODEL_CATEGORIES: Record<ModelCategory, string> = {
 };
 
 export const OPENROUTER_MODELS: ModelOption[] = [
+  // ─── NVIDIA NIM ─────────────────────────────────────────────────────────
+  // These models are used with the "NVIDIA NIM" provider (not OpenRouter).
+  // Requires a separate NVIDIA API key from https://build.nvidia.com
+  {
+    id: "meta/llama-3.2-11b-vision-instruct",
+    name: "Llama 3.2 11B Vision (NVIDIA)",
+    description: "Meta's vision-language model via NVIDIA NIM. Analyzes images and screenshots.",
+    category: "vision",
+    contextWindow: 128000,
+    supportsVision: true,
+    isFree: true,
+    recommended: true,
+    providerTag: "nvidia",
+  },
+  {
+    id: "meta/llama-3.2-90b-vision-instruct",
+    name: "Llama 3.2 90B Vision (NVIDIA)",
+    description: "Meta's large vision-language model via NVIDIA NIM. Best image understanding.",
+    category: "vision",
+    contextWindow: 128000,
+    supportsVision: true,
+    isFree: false,
+    providerTag: "nvidia",
+  },
+  {
+    id: "google/gemma-4-31b-it",
+    name: "Gemma 4 31B (NVIDIA)",
+    description: "Google's Gemma 4 with extended thinking via NVIDIA NIM. 128K context.",
+    category: "reasoning",
+    contextWindow: 131072,
+    supportsVision: false,
+    isFree: false,
+    recommended: true,
+    providerTag: "nvidia",
+  },
+  {
+    id: "meta/llama-4-scout-17b-16e-instruct",
+    name: "Llama 4 Scout 17B (NVIDIA)",
+    description: "Meta Llama 4 Scout via NVIDIA NIM. Fast and capable.",
+    category: "fast",
+    contextWindow: 131072,
+    supportsVision: false,
+    isFree: false,
+    providerTag: "nvidia",
+  },
+  {
+    id: "nvidia/llama-3.3-nemotron-super-49b-v1",
+    name: "Nemotron Super 49B (NVIDIA)",
+    description: "NVIDIA's Nemotron 49B with extended thinking. Best for reasoning tasks.",
+    category: "reasoning",
+    contextWindow: 131072,
+    supportsVision: false,
+    isFree: false,
+    providerTag: "nvidia",
+  },
+  {
+    id: "mistralai/mistral-small-3.1-24b-instruct",
+    name: "Mistral Small 3.1 24B (NVIDIA)",
+    description: "Mistral Small via NVIDIA NIM. Balanced speed and quality.",
+    category: "general",
+    contextWindow: 131072,
+    supportsVision: false,
+    isFree: false,
+    providerTag: "nvidia",
+  },
+
   // ─── Free / Test ────────────────────────────────────────────────────────
   {
     id: "nvidia/nemotron-3-super-120b-a12b:free",

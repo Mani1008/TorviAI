@@ -56,7 +56,7 @@ export default function Settings() {
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            All models are provided via OpenRouter. Your API key is managed by Pluely — you just pick a model.
+            Most models are provided via OpenRouter. Models marked <span className="font-semibold text-green-400">NIM</span> use NVIDIA NIM and require a separate API key.
           </p>
 
           {/* Category filter pills */}
@@ -110,6 +110,11 @@ export default function Settings() {
                             FREE
                           </span>
                         )}
+                        {model.providerTag === "nvidia" && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-500/15 text-green-400 shrink-0">
+                            NIM
+                          </span>
+                        )}
                         {model.recommended && (
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-400 shrink-0">
                             RECOMMENDED
@@ -135,6 +140,21 @@ export default function Settings() {
               );
             })}
           </div>
+
+          {/* NVIDIA NIM key notice — shown when an NIM model is selected */}
+          {currentModel?.providerTag === "nvidia" && (
+            <div className="rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3 space-y-1.5">
+              <p className="text-xs font-semibold text-green-400">NVIDIA NIM API Key required</p>
+              <p className="text-xs text-muted-foreground">
+                Add your key to <span className="font-mono text-muted-foreground/80">.env</span>{" "}
+                as <span className="font-mono text-muted-foreground/80">NVIDIA_API_KEY=nvapi-…</span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Get a free key at{" "}
+                <span className="text-green-400 underline underline-offset-2">build.nvidia.com</span>
+              </p>
+            </div>
+          )}
         </section>
 
         {/* ── System Prompt ── */}

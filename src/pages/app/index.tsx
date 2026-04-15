@@ -9,6 +9,9 @@ import { UsageTimer } from "@/components/UsageTimer";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useToast } from "@/hooks/useToast";
 import { ToastContainer } from "@/components/Toast";
+import { getModelById } from "@/config/models.constants";
+import { loadSelectedModel } from "@/lib/storage/ai-providers";
+import { addListeningSeconds } from "@/lib/storage/usage-stats";
 
 // The pill bar is the only transparent window — override the global dark background
 function useTransparentWindow() {
@@ -33,7 +36,10 @@ import {
   Camera,
   Mic,
   MicOff,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+import { Tooltip } from "@/components/Tooltip";
 // ─── Thinking indicator ───────────────────────────────────────────────────────
 function ThinkingDots() {
   return (
@@ -76,12 +82,34 @@ export default function App() {
   const [sttText, setSttText] = useState("");
   const [showIntensity, setShowIntensity] = useState(false);
   const [screenImage, setScreenImage] = useState<string | null>(null);
+  const [currentSlide, setCurrentSlide] = useState(0);
   const { transparency, setTransparency } = useTheme();
   const toast = useToast();
   const glassAlpha = transparency / 100;
 
+  // Build slides: each AI response paired with its preceding user message
+  const slides = messages.reduce<{ user?: typeof messages[0]; assistant: typeof messages[0] }[]>(
+    (acc, msg) => {
+      if (msg.role === "user") {
+        acc.push({ user: msg, assistant: undefined as any });
+      } else if (msg.role === "assistant") {
+        if (acc.length > 0 && !acc[acc.length - 1].assistant) {
+          acc[acc.length - 1].assistant = msg;
+        } else {
+          acc.push({ assistant: msg });
+        }
+      }
+      return acc;
+    },
+    []
+  ).filter((s) => s.assistant);
+
   const handleListenToggle = useCallback(() => {
-    if (capturing) stopCapture(); else startCapture();
+    if (capturing) {
+      stopCapture();
+    } else {
+      startCapture();
+    }
   }, [capturing, stopCapture, startCapture]);
 
   const handleMicToggle = useCallback(() => {
@@ -104,16 +132,12 @@ export default function App() {
     setIsExpanded(shouldExpand);
   }, [messages.length, error, systemAudioError, lastTranscription, isSttProcessing, isLoading]);
 
-  // Only auto-scroll to bottom when a new message is added and not streaming
-  const prevIsLoading = useRef(false);
+  // Auto-advance to the latest slide when a new AI response arrives
   useEffect(() => {
-    // If AI just finished streaming (was loading, now not), scroll to bottom
-    if (prevIsLoading.current && !isLoading && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (slides.length > 0) {
+      setCurrentSlide(slides.length - 1);
     }
-    prevIsLoading.current = isLoading;
-    // Do NOT scroll during streaming
-  }, [isLoading, messages]);
+  }, [slides.length]);
 
   // Resize window to match content: 44px (toolbar only), 110px (intensity popover), or 600px (panel)
   useEffect(() => {
@@ -136,25 +160,47 @@ export default function App() {
   };
 
   const handleClear = () => {
+    abort(); // Stop any in-progress streaming first
     clearMessages(); clearError();
     clearSystemConversation(); clearSystemError();
     setScreenImage(null);
+    setCurrentSlide(0);
   };
+
+  const goPrevSlide = useCallback(() => {
+    setCurrentSlide((i) => Math.max(0, i - 1));
+  }, []);
+
+  const goNextSlide = useCallback(() => {
+    setCurrentSlide((i) => Math.min(slides.length - 1, i + 1));
+  }, [slides.length]);
 
   const responseCount = messages.filter((m) => m.role === "assistant").length;
 
-  const handleScreenAnalysis = async () => {
+  const handleScreenAnalysis = useCallback(async () => {
+    const currentModel = getModelById(loadSelectedModel());
+    if (!currentModel?.supportsVision) {
+      toast.error(
+        currentModel
+          ? `${currentModel.name} doesn't support images. Switch to a vision model in Settings.`
+          : "Selected model doesn't support images. Switch to a vision model in Settings."
+      );
+      return;
+    }
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const imgData: string = await invoke("start_screen_capture");
       setScreenImage(imgData);
       setIsExpanded(true);
-      await sendMessage("Analyze this screenshot and describe what you see.", [imgData]);
+      await sendMessage(
+        "Look at this screenshot carefully. Identify what is being shown — if it's a coding problem, provide a complete working solution with explanation; if it's an error or bug, diagnose and fix it; if it's a UI or design, critique and suggest improvements; if it's a document or article, summarize the key points. Be specific and actionable.",
+        [imgData]
+      );
     } catch (e) {
       console.error("Screen analysis failed:", e);
       toast.error("Screen analysis failed");
     }
-  };
+  }, [sendMessage, toast]);
 
   // Listen for global shortcut "focus-input" event from Rust
   useEffect(() => {
@@ -178,6 +224,11 @@ export default function App() {
 
       const ctrl = e.ctrlKey || e.metaKey;
       if (!ctrl) return;
+
+      // Ctrl+Shift+Arrow — navigate response slides
+      if (e.shiftKey && e.key === "ArrowLeft") { e.preventDefault(); goPrevSlide(); return; }
+      if (e.shiftKey && e.key === "ArrowRight") { e.preventDefault(); goNextSlide(); return; }
+
       switch (true) {
         case e.shiftKey && e.key === "I":
           e.preventDefault();
@@ -233,7 +284,16 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handleListenToggle, handleMicToggle, isExpanded, transparency]);
+  }, [handleListenToggle, handleMicToggle, isExpanded, transparency, goPrevSlide, goNextSlide]);
+
+  // ─── Track listening seconds ───────────────────────────────────────────────
+  useEffect(() => {
+    if (!capturing && !isMicListening) return;
+    const interval = setInterval(() => {
+      addListeningSeconds(1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [capturing, isMicListening]);
 
   return (
     <div
@@ -279,38 +339,43 @@ export default function App() {
       >
         {/* Left — grip (drag) + audio toggles + clear */}
         <div className="flex items-center gap-0.5 pl-0.5">
-          <button
-            className="toolbar-icon-btn cursor-move drag-region"
-            title="Drag to move"
-            onMouseDown={() => getCurrentWindow().startDragging().catch(() => {})}
-          >
-            <GripVertical className="h-4 w-4" />
-          </button>
+          <Tooltip label="Drag to move">
+            <button
+              className="toolbar-icon-btn cursor-move drag-region"
+              onMouseDown={() => getCurrentWindow().startDragging().catch(() => {})}
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+          </Tooltip>
 
           {/* Mic toggle — neon green when active */}
-          <button
-            onClick={handleMicToggle}
-            className="toolbar-icon-btn no-drag"
-            style={isMicListening ? { color: "#4ade80", filter: "drop-shadow(0 0 6px #4ade80)" } : {}}
-            title={isMicListening ? "Stop mic" : "Microphone (Ctrl+Shift+M)"}
-          >
-            {isMicListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
-          </button>
+          <Tooltip label={isMicListening ? "Stop mic" : "Microphone"} shortcut="Ctrl+Shift+M">
+            <button
+              onClick={handleMicToggle}
+              className="toolbar-icon-btn no-drag"
+              style={isMicListening ? { color: "#4ade80", filter: "drop-shadow(0 0 6px #4ade80)" } : {}}
+            >
+              {isMicListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+            </button>
+          </Tooltip>
 
           {/* System audio toggle — neon emerald when active */}
-          <button
-            onClick={handleListenToggle}
-            className="toolbar-icon-btn no-drag"
-            style={capturing ? { color: "#34d399", filter: "drop-shadow(0 0 6px #34d399)" } : {}}
-            title={capturing ? "Stop system audio" : "System audio (Ctrl+Shift+A)"}
-          >
-            {capturing ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
-          </button>
+          <Tooltip label={capturing ? "Stop system audio" : "System audio"} shortcut="Ctrl+Shift+A">
+            <button
+              onClick={handleListenToggle}
+              className="toolbar-icon-btn no-drag"
+              style={capturing ? { color: "#34d399", filter: "drop-shadow(0 0 6px #34d399)" } : {}}
+            >
+              {capturing ? <HeadphoneOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
+            </button>
+          </Tooltip>
 
           {(messages.length > 0 || error) && (
-            <button onClick={handleClear} className="toolbar-icon-btn no-drag" title="New conversation">
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip label="Clear conversation" shortcut="Ctrl+Shift+X">
+              <button onClick={handleClear} className="toolbar-icon-btn no-drag">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
           )}
         </div>
 
@@ -328,35 +393,40 @@ export default function App() {
 
         {/* Right — action icons */}
         <div className="no-drag flex items-center gap-0.5 pr-0.5">
-          <button
-            onClick={handleScreenAnalysis}
-            className="toolbar-icon-btn"
-            title="Screen Analysis (Ctrl+Shift+S)"
-          >
-            <Camera className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip label="Screen analysis" shortcut="Ctrl+Shift+S">
+            <button
+              onClick={handleScreenAnalysis}
+              className="toolbar-icon-btn"
+            >
+              <Camera className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
 
           {isLoading && (
-            <button
-              onClick={abort}
-              className="toolbar-icon-btn text-rose-400! hover:text-rose-300!"
-              title="Stop"
-            >
-              <Square className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip label="Stop generating" shortcut="Esc">
+              <button
+                onClick={abort}
+                className="toolbar-icon-btn text-rose-400! hover:text-rose-300!"
+              >
+                <Square className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
           )}
 
-          <button
-            onClick={() => setShowIntensity((v) => !v)}
-            className={`toolbar-icon-btn ${showIntensity ? "text-indigo-400!" : ""}`}
-            title="Glass intensity"
-          >
-            <Contrast className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip label="Glass intensity" shortcut="Ctrl+[ / ]">
+            <button
+              onClick={() => setShowIntensity((v) => !v)}
+              className={`toolbar-icon-btn ${showIntensity ? "text-indigo-400!" : ""}`}
+            >
+              <Contrast className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
           <UsageTimer/>
-          <button onClick={openDashboard} className="toolbar-icon-btn" title="Settings">
-            <Settings className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip label="Dashboard" shortcut="Ctrl+Shift+D">
+            <button onClick={openDashboard} className="toolbar-icon-btn">
+              <Settings className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -377,23 +447,50 @@ export default function App() {
             "
             style={{ background: "rgba(255,255,255,0.02)" }}
           >
-            {isLoading ? (
-              <StatusChip label="Generating" pulse />
-            ) : isSttProcessing ? (
-              <StatusChip label="Transcribing" pulse />
-            ) : capturing ? (
-              <div className="flex items-center gap-1.5">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[11px] font-medium tracking-wide text-emerald-400/80">Listening</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="h-3 w-3 text-indigo-400/60" />
-                <span className="text-[11px] font-medium tracking-wide text-white/35">
-                  {responseCount} response{responseCount !== 1 ? "s" : ""}
-                </span>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {isLoading ? (
+                <StatusChip label="Generating" pulse />
+              ) : isSttProcessing ? (
+                <StatusChip label="Transcribing" pulse />
+              ) : capturing ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[11px] font-medium tracking-wide text-emerald-400/80">Listening</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="h-3 w-3 text-indigo-400/60" />
+                  <span className="text-[11px] font-medium tracking-wide text-white/35">
+                    {responseCount} response{responseCount !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              )}
+
+              {/* Slide navigation */}
+              {slides.length > 1 && (
+                <div className="flex items-center gap-1 ml-2">
+                  <button
+                    onClick={goPrevSlide}
+                    disabled={currentSlide === 0}
+                    className="rounded-md p-0.5 text-white/30 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                    title="Previous response (Ctrl+Shift+←)"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="text-[10px] tabular-nums text-white/40 min-w-8 text-center">
+                    {currentSlide + 1}/{slides.length}
+                  </span>
+                  <button
+                    onClick={goNextSlide}
+                    disabled={currentSlide >= slides.length - 1}
+                    className="rounded-md p-0.5 text-white/30 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                    title="Next response (Ctrl+Shift+→)"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               onClick={handleClear}
               className="rounded-lg p-1 text-white/25 hover:text-white/60 transition-colors"
@@ -404,7 +501,7 @@ export default function App() {
             </button>
           </div>
 
-          {/* Messages area */}
+          {/* Response slide area */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-3.5 py-3 space-y-2.5">
 
             {/* Errors */}
@@ -442,23 +539,28 @@ export default function App() {
               </div>
             )}
 
-            {/* Conversation messages */}
-            {messages.map((msg) => (
-              <div key={msg.id} className="msg-in">
-                {msg.role === "user" ? (
-                  <div className="flex justify-end">
-                    <div
-                      className="max-w-[82%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-xs leading-relaxed text-white/90 whitespace-pre-wrap"
-                      style={{
-                        background: "linear-gradient(135deg, rgba(99,102,241,0.75) 0%, rgba(139,92,246,0.65) 100%)",
-                        border: "1px solid rgba(139,92,246,0.3)",
-                        boxShadow: "0 4px 16px rgba(99,102,241,0.2)",
-                      }}
-                    >
-                      {msg.content}
+            {/* Current slide: user question + AI response */}
+            {slides.length > 0 && slides[currentSlide] && (
+              <>
+                {/* User message */}
+                {slides[currentSlide].user && (
+                  <div className="msg-in">
+                    <div className="flex justify-end">
+                      <div
+                        className="max-w-[82%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-xs leading-relaxed text-white/90 whitespace-pre-wrap"
+                        style={{
+                          background: "linear-gradient(135deg, rgba(99,102,241,0.75) 0%, rgba(139,92,246,0.65) 100%)",
+                          border: "1px solid rgba(139,92,246,0.3)",
+                          boxShadow: "0 4px 16px rgba(99,102,241,0.2)",
+                        }}
+                      >
+                        {slides[currentSlide].user!.content}
+                      </div>
                     </div>
                   </div>
-                ) : (
+                )}
+                {/* AI response */}
+                <div className="msg-in">
                   <div className="flex justify-start">
                     <div
                       className="max-w-[95%] rounded-2xl rounded-tl-sm px-3.5 py-2.5"
@@ -467,18 +569,35 @@ export default function App() {
                         border: "1px solid rgba(255,255,255,0.07)",
                       }}
                     >
-                      {msg.content ? (
+                      {slides[currentSlide].assistant.content ? (
                         <div className="glass-prose">
-                          <Markdown content={msg.content} />
+                          <Markdown content={slides[currentSlide].assistant.content} />
                         </div>
                       ) : (
                         <ThinkingDots />
                       )}
                     </div>
                   </div>
-                )}
+                </div>
+              </>
+            )}
+
+            {/* If loading and no slides yet (first message streaming) */}
+            {slides.length === 0 && isLoading && (
+              <div className="msg-in">
+                <div className="flex justify-start">
+                  <div
+                    className="rounded-2xl rounded-tl-sm px-3.5 py-2.5"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.07)",
+                    }}
+                  >
+                    <ThinkingDots />
+                  </div>
+                </div>
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}
