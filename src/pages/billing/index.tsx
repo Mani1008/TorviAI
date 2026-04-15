@@ -1,10 +1,8 @@
 import { useState, useEffect } from "react";
 import { PageLayout } from "@/layouts";
 import { loadUserProfile } from "@/lib/storage/auth";
-import { loadUsageStats } from "@/lib/storage/usage-stats";
-import { PLAN_LIMITS } from "@/config/constants";
 import type { UserProfile } from "@/types/settings";
-import { Check, Minus, Plus, Crown, Infinity } from "lucide-react";
+import { Check, Minus, Plus, Crown } from "lucide-react";
 
 // ─── Pricing constants ──────────────────────────────────────────────────────
 const BASE_PLUS_PRICE = 800;

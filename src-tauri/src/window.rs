@@ -18,7 +18,7 @@ fn get_hidden_owner() -> winapi::shared::windef::HWND {
             // Create a hidden top-level popup window to serve as owner.
             // Must be a real top-level window (NOT HWND_MESSAGE) so it can
             // be a valid owner for other top-level windows.
-            let class_name: Vec<u16> = "PluelyHiddenOwner\0".encode_utf16().collect();
+            let class_name: Vec<u16> = "TorviHiddenOwner\0".encode_utf16().collect();
             let wc = winapi::um::winuser::WNDCLASSW {
                 style: 0,
                 lpfnWndProc: Some(winapi::um::winuser::DefWindowProcW),
@@ -149,7 +149,7 @@ pub async fn open_gate(app: AppHandle) -> Result<(), String> {
     }
     let url = WebviewUrl::App("/gate".into());
     let window = tauri::WebviewWindowBuilder::new(&app, "gate", url)
-        .title("Pluely — Sign In")
+        .title("Torvi — Sign In")
         .inner_size(480.0, 600.0)
         .resizable(false)
         .center()

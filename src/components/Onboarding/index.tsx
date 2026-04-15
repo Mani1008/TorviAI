@@ -41,7 +41,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         <Sparkles className="h-8 w-8 text-primary" />
       </div>
       <div className="space-y-2">
-        <h2 className="text-2xl font-bold">Welcome to Pluely</h2>
+        <h2 className="text-2xl font-bold">Welcome to Torvi</h2>
         <p className="text-muted-foreground text-sm max-w-sm">
           Your AI overlay assistant. Lives in a floating pill — always accessible,
           never in the way. Let's get you set up in under a minute.
@@ -93,7 +93,7 @@ function ShortcutsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
         ))}
       </div>
       <p className="text-xs text-muted-foreground">
-        The first two shortcuts work system-wide — even when Pluely is hidden.
+        The first two shortcuts work system-wide — even when Torvi is hidden.
       </p>
       <div className="flex gap-3">
         <button onClick={onBack} className="flex-1 px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition-colors">
@@ -116,12 +116,12 @@ function ProviderStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
         </div>
         <div>
           <h2 className="text-lg font-semibold">AI Models — Ready to Go</h2>
-          <p className="text-xs text-muted-foreground">Powered by OpenRouter, managed by Pluely</p>
+          <p className="text-xs text-muted-foreground">Powered by OpenRouter, managed by Torvi</p>
         </div>
       </div>
       <div className="rounded-lg border border-border p-4 space-y-3">
         <p className="text-sm text-muted-foreground">
-          Pluely handles API access for you — no keys to copy, no accounts to create.
+          Torvi handles API access for you — no keys to copy, no accounts to create.
           You get access to 20+ curated models across 5 categories:
         </p>
         <ul className="space-y-1.5 text-sm">
@@ -164,7 +164,7 @@ function DoneStep({ onFinish }: { onFinish: () => void }) {
         <h2 className="text-2xl font-bold">You're all set!</h2>
         <p className="text-muted-foreground text-sm max-w-sm">
           Press <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border text-xs font-mono">Ctrl+Shift+H</kbd> any time
-          to show or hide Pluely. Explore Settings to fine-tune your experience.
+          to show or hide Torvi. Explore Settings to fine-tune your experience.
         </p>
       </div>
       <button

@@ -75,8 +75,8 @@ pub async fn get_ai_config(model_id: Option<String>) -> Result<AiConfig, String>
         let mut headers = std::collections::HashMap::new();
         headers.insert("Content-Type".to_string(), "application/json".to_string());
         headers.insert("Authorization".to_string(), format!("Bearer {}", api_key));
-        headers.insert("HTTP-Referer".to_string(), "https://pluely.com".to_string());
-        headers.insert("X-Title".to_string(), "Pluely".to_string());
+        headers.insert("HTTP-Referer".to_string(), "https://torvi.com".to_string());
+        headers.insert("X-Title".to_string(), "Torvi".to_string());
 
         let body_template = serde_json::json!({
             "model": model,

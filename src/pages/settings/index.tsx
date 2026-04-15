@@ -39,7 +39,7 @@ export default function Settings() {
   return (
     <PageLayout
       title="Settings"
-      description="Configure your Pluely assistant"
+      description="Configure your Torvi assistant"
     >
       <div className="space-y-10 max-w-2xl">
 

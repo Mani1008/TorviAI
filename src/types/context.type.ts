@@ -18,8 +18,8 @@ export interface IContextType {
   updateCustomizable: (state: Partial<CustomizableState>) => void;
 
   // License
-  pluelyApiEnabled: boolean;
-  togglePluelyApi: (enabled: boolean) => void;
+  torviApiEnabled: boolean;
+  toggleTorviApi: (enabled: boolean) => void;
   hasActiveLicense: boolean;
   setHasActiveLicense: (active: boolean) => void;
 }

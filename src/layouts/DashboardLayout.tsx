@@ -17,7 +17,7 @@ function TitleBar() {
       <div data-tauri-drag-region className="flex items-center gap-2">
         <div className="h-3.5 w-3.5 rounded-sm bg-indigo-500/80" />
         <span className="text-xs font-semibold tracking-wide text-foreground/60">
-          Pluely
+          Torvi
         </span>
       </div>
 

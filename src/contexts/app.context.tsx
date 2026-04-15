@@ -50,7 +50,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   // --- License ---
-  const [pluelyApiEnabled, setPluelyApiEnabled] = useState(
+  const [torviApiEnabled, setTorviApiEnabled] = useState(
     loadFromStorage(STORAGE_KEYS.API_ENABLED, false)
   );
   const [hasActiveLicense, setHasActiveLicense] = useState(false);
@@ -83,8 +83,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const togglePluelyApi = useCallback((enabled: boolean) => {
-    setPluelyApiEnabled(enabled);
+  const toggleTorviApi = useCallback((enabled: boolean) => {
+    setTorviApiEnabled(enabled);
     saveToStorage(STORAGE_KEYS.API_ENABLED, enabled);
   }, []);
 
@@ -95,8 +95,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     updateScreenshotConfiguration,
     customizable,
     updateCustomizable,
-    pluelyApiEnabled,
-    togglePluelyApi,
+    torviApiEnabled,
+    toggleTorviApi,
     hasActiveLicense,
     setHasActiveLicense,
   };

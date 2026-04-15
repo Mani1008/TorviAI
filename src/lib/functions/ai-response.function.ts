@@ -399,7 +399,7 @@ async function* executeStreamWithConfig(
 
 /**
  * Stream an AI response using config obtained from the Rust backend.
- * The API key is managed by Pluely — users only select a model.
+ * The API key is managed by Torvi — users only select a model.
  */
 export async function* streamAIFromConfig(
   params: StreamAIFromConfigParams

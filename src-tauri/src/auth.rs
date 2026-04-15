@@ -72,7 +72,7 @@ h2{margin:0 0 .5rem;font-size:1.2rem}p{color:#666;margin:0;font-size:.9rem}</sty
 </head>
 <body><div class="card">
 <h2>&#10003; Signed in successfully</h2>
-<p>You can close this tab and return to Pluely.</p>
+<p>You can close this tab and return to Torvi.</p>
 </div></body></html>"#;
 
             let response = format!(

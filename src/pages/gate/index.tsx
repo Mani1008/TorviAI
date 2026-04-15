@@ -94,7 +94,7 @@ export default function Gate() {
             <Sparkles className="h-8 w-8 text-indigo-400" />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Welcome to Pluely</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">Welcome to Torvi</h1>
             <p className="mt-1 text-sm text-white/40">Sign in to unlock your AI assistant</p>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { safeLocalStorage } from "./helper";
 import { STORAGE_KEYS } from "@/config/constants";
 
-const SESSION_MARKER = "pluely_session_active";
+const SESSION_MARKER = "torvi_session_active";
 
 /**
  * Call once at app startup. Increments the lifetime session counter
