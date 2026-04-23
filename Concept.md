@@ -1,7 +1,15 @@
-# Pluely — Architectural Concepts
+# Torvi — Architectural Concepts (Updated April 2026)
 
-> A conceptual guide to the architectural patterns, design decisions, and system-level abstractions behind Pluely.  
+> A conceptual guide to the architectural patterns, design decisions, and system-level abstractions behind Torvi (formerly Torvi).
 > No source code is reproduced — only patterns, flows, and rationale.
+
+## Recent Architectural Changes (v0.3)
+- **Three-window model**: Added Gate window (auth) alongside Overlay + Dashboard. Gate is created hidden; React controls visibility.
+- **Lazy-loaded modules**: Appwrite SDK is dynamically imported to prevent startup crashes when not configured.
+- **Deferred window show**: Windows start hidden (`visible: false`). Frontend calls `invoke("show_gate")` only when needed. Eliminates blank-screen flash on startup.
+- **Dual auth pattern**: Appwrite OAuth (cloud) + Legacy JWT (self-hosted). Falls through gracefully with try/catch.
+- **Model routing in Rust**: `get_ai_config(modelId)` routes to NVIDIA NIM or OpenRouter based on model ID prefix matching.
+- **Interview mode** (planned): Speaker diarization + question detection for system audio during interviews.
 
 ---
 
@@ -21,7 +29,7 @@
 
 ### Core Concept
 
-Pluely's overlay is a **frameless, transparent, always-visible floating window** that hovers above all other applications. It behaves like a system-level HUD rather than a traditional application window — it never steals focus from the active app, it cannot be captured by screen recording software, and it dynamically resizes based on its content state.
+Torvi's overlay is a **frameless, transparent, always-visible floating window** that hovers above all other applications. It behaves like a system-level HUD rather than a traditional application window — it never steals focus from the active app, it cannot be captured by screen recording software, and it dynamically resizes based on its content state.
 
 ### Architectural Pattern: Dual-Window with Role Separation
 
@@ -132,7 +140,7 @@ The transcription pipeline is a **five-stage, cross-boundary data flow** that be
 │                                                              │
 │   Frontend receives base64 → decodes to Blob                 │
 │        ↓                                                     │
-│   Routes to STT provider (Pluely API or custom cURL)         │
+│   Routes to STT provider (Torvi API or custom cURL)         │
 │        ↓                                                     │
 │   HTTP POST with audio payload (multipart/binary/base64)     │
 │        ↓                                                     │
@@ -211,13 +219,13 @@ The LLM pipeline is a **provider-agnostic request builder** that accepts a user 
                     └──────────┬──────────┘
                                │
                     ┌──────────▼──────────┐
-                    │  shouldUsePluelyAPI? │
+                    │  shouldUseTorviAPI? │
                     └──────────┬──────────┘
                        yes /       \ no
                           /         \
               ┌──────────▼──┐  ┌────▼──────────┐
               │  Path A:     │  │  Path B:       │
-              │  Pluely API  │  │  Custom cURL   │
+              │  Torvi API  │  │  Custom cURL   │
               │              │  │                │
               │  Rust backend│  │  Frontend JS   │
               │  SSE stream  │  │  fetch() + SSE │
@@ -234,7 +242,7 @@ The LLM pipeline is a **provider-agnostic request builder** that accepts a user 
                     └─────────────────────┘
 ```
 
-**Path A (Pluely API):** The frontend invokes a Tauri command. The Rust backend makes an HTTP request to Pluely's server, which returns routing configuration (target URL, auth token, model). The backend then makes a second request to the actual AI provider, reads the SSE byte stream, parses `data:` lines, and emits each content chunk as a Tauri event. The frontend listens for these events and yields them from an async generator.
+**Path A (Torvi API):** The frontend invokes a Tauri command. The Rust backend makes an HTTP request to Torvi's server, which returns routing configuration (target URL, auth token, model). The backend then makes a second request to the actual AI provider, reads the SSE byte stream, parses `data:` lines, and emits each content chunk as a Tauri event. The frontend listens for these events and yields them from an async generator.
 
 **Path B (Custom cURL):** The frontend parses the user's cURL template into structured HTTP components (URL, headers, body). It performs recursive variable substitution — replacing `{{TEXT}}`, `{{API_KEY}}`, `{{MODEL}}`, `{{SYSTEM_PROMPT}}`, `{{IMAGE}}` — then issues a `fetch()` request directly. The response stream is read as SSE, each `data:` line is JSON-parsed, and a configurable JSONPath (`responseContentPath`) extracts the text delta.
 
@@ -285,7 +293,7 @@ This prevents race conditions where a slow response from an earlier prompt could
 
 ### Core Concept
 
-Pluely uses a **layered plugin architecture** where the Rust backend composes Tauri's official plugin ecosystem with custom-built modules, and the frontend extends AI/STT capabilities through a **template-driven provider system** that requires no code changes to add new integrations.
+Torvi uses a **layered plugin architecture** where the Rust backend composes Tauri's official plugin ecosystem with custom-built modules, and the frontend extends AI/STT capabilities through a **template-driven provider system** that requires no code changes to add new integrations.
 
 ### Tauri Plugin Composition
 
@@ -316,7 +324,7 @@ The backend is assembled from 12+ independent Tauri plugins, each providing a sp
 │  │           Custom Application Modules          │   │
 │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌───────┐ │   │
 │  │  │Speaker │ │Capture │ │Activate│ │  API  │ │   │
-│  │  │(Audio) │ │(Screen)│ │(License│ │(Pluely│ │   │
+│  │  │(Audio) │ │(Screen)│ │(License│ │(Torvi│ │   │
 │  │  │        │ │        │ │       )│ │      )│ │   │
 │  │  └────────┘ └────────┘ └────────┘ └───────┘ │   │
 │  └──────────────────────────────────────────────┘   │
@@ -342,7 +350,7 @@ Command handlers declare which states they need as parameters. Tauri automatical
 
 ### Frontend Provider System — The "cURL as Plugin" Pattern
 
-Rather than a traditional plugin interface with trait implementations or abstract classes, Pluely treats **cURL commands as portable, serializable plugin definitions**:
+Rather than a traditional plugin interface with trait implementations or abstract classes, Torvi treats **cURL commands as portable, serializable plugin definitions**:
 
 ```
 Traditional Plugin Architecture:
@@ -351,7 +359,7 @@ Traditional Plugin Architecture:
     async stream(messages) { ... }
   }
 
-Pluely's Template Architecture:
+Torvi's Template Architecture:
   {
     name: "OpenAI",
     curl: "curl https://api.openai.com/... -d '{{TEXT}}'",
@@ -385,7 +393,7 @@ This creates a lightweight, declarative plugin system where the "contract" betwe
 
 ### Core Concept
 
-Pluely uses a **multi-layer event architecture** that spans four distinct event systems, each serving a different communication boundary:
+Torvi uses a **multi-layer event architecture** that spans four distinct event systems, each serving a different communication boundary:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -410,7 +418,7 @@ Pluely uses a **multi-layer event architecture** that spans four distinct event 
 
 ### Layer 1: Global Shortcut Dispatch
 
-Global shortcuts are registered at the OS level and intercepted even when Pluely is not the focused application. The architecture follows a **centralized dispatcher pattern**:
+Global shortcuts are registered at the OS level and intercepted even when Torvi is not the focused application. The architecture follows a **centralized dispatcher pattern**:
 
 1. All 7+ shortcuts are registered with the OS through the Tauri global-shortcut plugin
 2. Every key press flows to a single Rust handler function
@@ -425,7 +433,7 @@ This centralized approach means:
 
 ### Layer 2: Tauri IPC — Command vs Event
 
-Pluely uses both Tauri communication patterns, each for its appropriate use case:
+Torvi uses both Tauri communication patterns, each for its appropriate use case:
 
 **Commands (synchronous request/response):**
 - Frontend calls `invoke("command_name", { args })` → Rust handler executes → returns result
@@ -471,7 +479,7 @@ Several features use DOM-native event mechanisms for specific purposes:
 
 ### Singleton Listener Pattern
 
-React's StrictMode causes components to mount, unmount, and remount during development. This would double-register global event listeners. Pluely solves this with a **module-level singleton flag**:
+React's StrictMode causes components to mount, unmount, and remount during development. This would double-register global event listeners. Torvi solves this with a **module-level singleton flag**:
 
 A boolean variable at module scope (outside the component) tracks whether listeners have been registered. On mount, if the flag is false, listeners are registered and the flag is set true. The cleanup function does not unregister listeners. This ensures exactly one set of global listeners regardless of React lifecycle behavior.
 
@@ -481,7 +489,7 @@ A boolean variable at module scope (outside the component) tracks whether listen
 
 ### Core Concept
 
-AI response streaming in Pluely follows the **async generator as data pipeline** pattern. The streaming engine converts an HTTP SSE (Server-Sent Events) byte stream into a JavaScript async generator that yields text chunks, which React consumes to update the UI incrementally.
+AI response streaming in Torvi follows the **async generator as data pipeline** pattern. The streaming engine converts an HTTP SSE (Server-Sent Events) byte stream into a JavaScript async generator that yields text chunks, which React consumes to update the UI incrementally.
 
 ### The SSE Protocol Abstraction
 
@@ -518,7 +526,7 @@ The async generator is the **universal interface** between the transport layer a
               ┌─────────────┬─────────────┐
               │ Path A:      │ Path B:      │
               │ Tauri Events │ fetch() SSE  │
-              │ (Pluely API) │ (Custom cURL)│
+              │ (Torvi API) │ (Custom cURL)│
               └──────┬───────┴──────┬───────┘
                      │              │
                      ▼              ▼
@@ -555,7 +563,7 @@ The consumer loop is identical for both transport paths:
 
 ### Incremental Markdown Rendering
 
-Rendering partial markdown is inherently challenging — at any point during streaming, the markdown could be in an incomplete state (unclosed code block, partial table, half-written link). Pluely handles this by:
+Rendering partial markdown is inherently challenging — at any point during streaming, the markdown could be in an incomplete state (unclosed code block, partial table, half-written link). Torvi handles this by:
 
 1. **Full re-parse on each chunk**: The entire accumulated response is re-parsed by the markdown renderer on each update. This is safe because the parser is tolerant of incomplete constructs.
 2. **Memoized syntax highlighting**: Code blocks use `React.memo` and `useMemo` to avoid re-highlighting already-rendered blocks. Only new or changed blocks trigger Shiki.
@@ -575,7 +583,7 @@ Two mechanisms prevent the streaming system from producing incorrect output:
 
 ### Core Concept
 
-Pluely implements a **progressive permission model** that requests OS-level permissions only when needed, checks them before sensitive operations, and degrades gracefully when permissions are denied. The permission surface varies dramatically across platforms.
+Torvi implements a **progressive permission model** that requests OS-level permissions only when needed, checks them before sensitive operations, and degrades gracefully when permissions are denied. The permission surface varies dramatically across platforms.
 
 ### Permission Matrix
 
@@ -636,7 +644,7 @@ A dedicated `tauri-plugin-macos-permissions` handles the native permission API c
 
 ### Content Protection as Anti-Permission
 
-Rather than requesting screen recording permission for its own UI, Pluely takes the opposite approach: it **opts out of being captured**. The `contentProtected` flag on both windows tells the OS compositor to exclude the window from any screen capture, recording, or streaming. This is not a permission request — it's a declaration that this window's content should never appear in screenshots or recordings.
+Rather than requesting screen recording permission for its own UI, Torvi takes the opposite approach: it **opts out of being captured**. The `contentProtected` flag on both windows tells the OS compositor to exclude the window from any screen capture, recording, or streaming. This is not a permission request — it's a declaration that this window's content should never appear in screenshots or recordings.
 
 ### Secure Storage Architecture
 
@@ -657,7 +665,7 @@ Frontend (JavaScript)                 Backend (Rust)
 └─────────────────┘                  └─────────────────────┘
 ```
 
-Only three key names are accepted: `pluely_license_key`, `pluely_instance_id`, `selected_pluely_model`. Any other key is rejected with an error. This prevents the IPC interface from being abused as a general-purpose key-value store.
+Only three key names are accepted: `torvi_license_key`, `torvi_instance_id`, `selected_torvi_model`. Any other key is rejected with an error. This prevents the IPC interface from being abused as a general-purpose key-value store.
 
 ### License Validation Flow
 
@@ -737,7 +745,7 @@ This prevents hundreds of database writes during a single response stream while 
 
 ### Pattern: Stale Closure Prevention
 
-React hooks that register external listeners (Tauri events, global shortcuts) face stale closure issues — the listener captures the state values from when it was created, not the current values. Pluely handles this with `useRef` containers:
+React hooks that register external listeners (Tauri events, global shortcuts) face stale closure issues — the listener captures the state values from when it was created, not the current values. Torvi handles this with `useRef` containers:
 
 - Mutable values are stored in refs
 - Listeners read from refs (always current)
@@ -758,4 +766,4 @@ No single feature failure can crash the application or corrupt persistent state.
 
 ---
 
-*This conceptual guide was derived from architectural analysis of the full pluely-master codebase.*
+*This conceptual guide was derived from architectural analysis of the full torvi-master codebase.*

@@ -23,9 +23,10 @@ export function clearAuthToken(): void {
  * to bypass this and let the app open without a real token.
  */
 export async function verifyToken(): Promise<{ id: string; name: string; email: string; plan: string } | null> {
-  // Dev bypass — remove or set to false in production
-  if (import.meta.env.VITE_SKIP_AUTH_CHECK === "true") {
-    return { id: "dev", name: "Dev User", email: "dev@local", plan: "dev" };
+  // Dev bypass — only active in dev builds; always false in production bundles.
+  // VITE_SKIP_AUTH_CHECK has no effect when import.meta.env.DEV is false.
+  if (import.meta.env.DEV && import.meta.env.VITE_SKIP_AUTH_CHECK === "true") {
+    return { id: "dev", name: "Dev User", email: "dev@local", plan: "starter" };
   }
 
   const token = getAuthToken();

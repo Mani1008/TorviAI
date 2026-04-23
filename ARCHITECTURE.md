@@ -1,45 +1,79 @@
-# Architecture of Desktop AI Assistant
+# Architecture of Desktop AI Assistant (Torvi)
 
-# Progress Update v0.2 (April 2026)
+# Progress Update v0.3 (April 2026)
 
-**This section summarizes the current state of Pluely as of April 2026.**
+**This section summarizes the current state of Torvi (formerly Torvi) as of April 2026.**
 
-- **Tauri 2 + React 19 + TypeScript 5.8**: Modern, cross-platform desktop app with a transparent overlay window.
-- **Premium Glassmorphism UI**: Fully custom dark glass overlay pill bar (600×44px collapsed, 600×600px expanded). Live glass intensity slider with keyboard shortcuts (`Ctrl+[`/`Ctrl+]`). Default transparency at 18% for near-invisible look.
-- **AI Chat**: Streaming chat with OpenRouter and other OpenAI-compatible providers. Supports multipart vision messages (text + image_url).
-- **Screen Analysis**: Full-screen capture via `xcap` crate → base64 PNG → AI vision model for screenshot analysis.
-- **System Audio Transcription**: Real-time system audio capture (WASAPI) with AssemblyAI streaming STT, routed into main chat flow.
-- **Microphone Input**: Push-to-talk/toggle mic via WebSpeech API, transcript injected into chat input.
-- **Error Handling**: Robust error banners for API and STT failures, with deduplication and clear user feedback.
-- **Persistent History**: SQLite-backed chat history, system prompts, and settings.
-- **Global Shortcuts (Rust-registered)**: `Ctrl+Shift+H` (smart toggle: show/focus/hide), `Ctrl+Shift+I` (show + focus input). Work system-wide from any app.
-- **In-App Shortcuts**: `Ctrl+Shift+S` (screenshot), `Ctrl+Shift+A` (system audio), `Ctrl+Shift+M` (mic), `Ctrl+Shift+D` (dashboard), `Ctrl+Shift+X` (clear chat), `Ctrl+[`/`]` (glass intensity), `Ctrl+Arrow` (move window), `Escape` (close panel).
-- **Overlay Window System**: Dynamic height (44px collapsed → 110px with intensity slider → 600px expanded). Non-resizable, always-on-top, `WS_EX_TOOLWINDOW` style to hide from taskbar. True transparency, no shadow artifacts.
-- **Toolbar Layout**: Left: grip (drag) → mic (neon green glow) → system audio (neon emerald glow) → trash. Center: text input. Right: send → camera → stop → glass → timer → settings.
-- **Session Timer**: Wall-clock timer persisted in `sessionStorage` — survives sleep, visibility changes, and component remounts.
-- **Theming**: Dark-mode only, glass alpha driven by CSS variable `--glass-alpha` adjustable at runtime.
-- **Extensible Providers**: Easy to add new AI or STT providers via config.
+## Branding
+- **Renamed**: Torvi → **Torvi** across all source files, window titles, system prompts, and UI text.
+- Only these reference .md files retain historical "Torvi" references for context.
 
-**Key Changes Since v0.1:**
-- Window is now dynamically resized (44px/110px/600px) instead of fixed 600×600. Click-through when collapsed.
-- Drag now only on grip dots via `startDragging()`, not the entire toolbar.
-- Removed all box-shadow artifacts from toolbar, response panel, and intensity popover.
-- Global shortcuts registered in Rust via `tauri-plugin-global-shortcut` `on_shortcut()` in setup. Emits `focus-input` event to frontend.
-- Screen capture pipeline: xcap → PNG → base64 → multipart AI vision message.
-- Timer uses `sessionStorage` start timestamp + `visibilitychange` listener for accurate elapsed time across sleep cycles.
-- Mic and system audio buttons moved to left side of toolbar with neon glow indicators.
-- History (MessageSquare) button removed from pill bar.
+## Core Stack
+- **Tauri 2 + React 19 + TypeScript 5.8**: Cross-platform desktop app with transparent overlay window.
+- **Vite + Tailwind CSS v4**: Frontend build with `@tailwindcss/vite` plugin, OKLCH color tokens.
+- **SQLite** (`@tauri-apps/plugin-sql`): Local persistence for conversations, messages, system prompts.
+- **localStorage**: Settings, usage stats, auth tokens, model selection, response preferences.
 
-**Known Limitations:**
-- Only dark mode is supported (by design for overlay clarity).
-- Global shortcuts are hardcoded; custom binding editor is TODO.
-- SQLite history wiring to dashboard views is partially complete.
+## Windows & Navigation
+- **Three-window architecture**: Overlay pill bar (main), Gate (auth), Dashboard (settings/history).
+- **Gate window**: Created hidden on startup. React controls visibility — only shown when user sign-in is required. Auto-unlocks silently in dev mode (`VITE_SKIP_AUTH_CHECK=true`).
+- **Dashboard window**: 900×680px, frameless, 13 routes (Dashboard, Chats, Chat View, System Prompts, Shortcuts, Screenshot, Audio, Responses, Billing, Settings).
+- **Overlay pill bar**: 600×44px collapsed, 600×600px expanded. Always-on-top, `WS_EX_TOOLWINDOW` style (hidden from taskbar). Glassmorphism with adjustable alpha.
+
+## Authentication
+- **Dual auth flow**: Appwrite OAuth (Google) + Legacy JWT (landing page).
+- **Appwrite SDK** (`appwrite` npm v24.2.0): Lazy-loaded to prevent gate crashes.
+- **Rust OAuth callback server**: TCP listener on random port → browser redirect → Tauri event to frontend.
+- **Dev bypass**: `VITE_SKIP_AUTH_CHECK=true` skips all auth and auto-unlocks the app.
+- Gate React component calls `invoke("show_gate")` only when sign-in UI is needed.
+
+## AI Model System
+- **Multi-provider support**: OpenRouter (30+ models) + NVIDIA NIM (Gemma 4, Llama 4, Nemotron).
+- **Model selection UI**: Settings page with category filters (General Purpose, Coding, Deep Reasoning, Vision, Fast & Lightweight).
+- **Flow**: Settings UI → `saveSelectedModel()` → localStorage → `loadSelectedModel()` → Rust `get_ai_config(modelId)` → API request.
+- **Streaming**: SSE parsing with configurable response content paths per provider.
+
+## Audio Pipeline
+- **System audio**: WASAPI loopback capture → Rust VAD (RMS/peak state machine) → WAV encoding → base64 → Tauri event → STT.
+- **Microphone**: Push-to-talk via WebSpeech API or AssemblyAI real-time streaming STT.
+- **STT providers**: AssemblyAI (primary real-time), Groq Whisper (fallback).
+
+## Screenshot
+- **Manual-only mode**: Auto-capture removed. Full-screen capture via `xcap` crate → base64 PNG → AI vision model.
+
+## System Prompts
+- **Rich default prompt**: Structured Torvi system prompt with response formatting, persona, and capability instructions.
+- **CRUD**: SQLite-backed system prompts with dashboard management UI.
+
+## Appwrite Integration (Partial)
+- **7 module files created**: client.ts, auth.ts, sync-profiles.ts, sync-conversations.ts, sync-prompts.ts, sync-settings.ts, sync.ts.
+- **Status**: SDK installed, code written, but **Appwrite database not provisioned** (blocked by Free plan quota limit: 1 database per project, already consumed).
+- **Sync wired into**: useCompletion (AI response decrement), chat-history (conversation sync), response-settings (push), app.context (startup sync).
+
+## Usage & Billing
+- **Plan limits**: Starter (30min/30 responses), Plus (2hr/120), Pro (unlimited).
+- **Billing page**: 3-tier pricing cards (Starter ₹0, Plus ₹800+, Pro ₹1,999) with GST calculation and adjustable listening/response add-ons.
+- **Usage enforcement**: `checkAiResponseLimit()` guard before AI calls.
+
+## Response Settings
+- **Response length**: Short (2-4 sentences), Medium (1-2 paragraphs), Auto.
+- **Response language**: Removed from UI (was not wired to AI calls). Will be re-added as a functional feature later.
+
+## Shortcuts
+- **Global** (Rust-registered): `Ctrl+Shift+H` (toggle overlay), `Ctrl+Shift+I` (focus input).
+- **In-app**: Screenshot, audio, mic, dashboard, clear chat, glass intensity, move window, escape.
+
+## Known Limitations
+- Only dark mode supported (by design).
+- Appwrite database provisioning blocked by plan quota.
+- Google OAuth not configured in Appwrite Console.
+- Response language selection not yet functional (removed from UI).
 
 ---
 
-# Pluely — Complete Architecture Document
+# Torvi — Complete Architecture Document
 
-> **Generated from full codebase analysis of pluely-master**  
+> **Generated from full codebase analysis. Renamed from Torvi.**  
 > Use this as the blueprint for building your own app.
 
 ---
@@ -93,7 +127,7 @@
 
 ## 1. Project Overview
 
-**Pluely** is a privacy-first, lightweight AI assistant desktop application (~10MB) built as an open-source alternative to Cluely. It works as a transparent overlay during meetings, interviews, and conversations — invisible to screen recording/sharing.
+**Torvi** is a privacy-first, lightweight AI assistant desktop application (~10MB) built as an open-source alternative to Cluely. It works as a transparent overlay during meetings, interviews, and conversations — invisible to screen recording/sharing.
 
 ### Core Capabilities
 | Feature | Description |
@@ -106,7 +140,7 @@
 | **Custom Providers** | Add any AI/STT provider via curl commands |
 | **Persistent History** | SQLite-backed chat history with full-text conversations |
 | **Global Shortcuts** | 7 customizable system-wide keyboard shortcuts |
-| **License System** | Premium Pluely API with secure license activation |
+| **License System** | Premium Torvi API with secure license activation |
 | **Cross-Platform** | Windows (WASAPI), macOS (Core Audio), Linux (PulseAudio) |
 
 ### Key Metrics
@@ -179,7 +213,7 @@
 ## 3. High-Level Architecture Diagram
 
 ```
-┌──────────────────────────── PLUELY DESKTOP APP ────────────────────────────┐
+┌──────────────────────────── TORVI DESKTOP APP ────────────────────────────┐
 │                                                                             │
 │  ┌────────────────────── Frontend (React/TypeScript) ──────────────────┐   │
 │  │                                                                      │   │
@@ -239,7 +273,7 @@
 ┌──────────────────── External Services ────────────────────┐
 │  AI Providers: OpenAI, Claude, Gemini, Groq, Mistral...  │
 │  STT Providers: Whisper, ElevenLabs, Deepgram, Google... │
-│  Pluely API: License, Models, Chat, Transcription        │
+│  Torvi API: License, Models, Chat, Transcription        │
 │  PostHog: Analytics                                       │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -249,7 +283,7 @@
 ## 4. Directory Structure
 
 ```
-pluely-master/
+torvi-master/
 │
 ├── package.json              # NPM config, scripts, frontend dependencies
 ├── tsconfig.json             # TypeScript compiler options
@@ -347,7 +381,7 @@ pluely-master/
 │   │   ├── functions/             # Core business functions
 │   │   │   ├── ai-response.function.ts  # AI streaming (main fetch function)
 │   │   │   ├── stt.function.ts          # Speech-to-text transcription
-│   │   │   ├── pluely.api.ts            # Pluely premium API routing
+│   │   │   ├── torvi.api.ts            # Torvi premium API routing
 │   │   │   └── common.function.ts       # Template processing, variable extraction
 │   │   │
 │   │   ├── database/              # SQLite operations (frontend wrappers)
@@ -393,9 +427,9 @@ pluely-master/
 │   │   └── cross-platform.json # Platform-specific permissions
 │   │
 │   └── src/
-│       ├── main.rs           # Entry point → pluely_lib::run()
+│       ├── main.rs           # Entry point → torvi_lib::run()
 │       ├── lib.rs            # Tauri setup, plugins, state, invoke handler
-│       ├── api.rs            # Pluely API (chat streaming, transcription, models)
+│       ├── api.rs            # Torvi API (chat streaming, transcription, models)
 │       ├── activate.rs       # License activation/deactivation/validation
 │       ├── capture.rs        # Screenshot capture (multi-monitor, DPI-aware)
 │       ├── shortcuts.rs      # Global shortcut management + action routing
@@ -567,13 +601,13 @@ interface IContextType {
   };
   
   // License
-  pluelyApiEnabled: boolean;
+  torviApiEnabled: boolean;
   hasActiveLicense: boolean;
   
   // Update methods for all of the above
   updateSelectedAIProvider(...): void;
   updateSystemPrompt(...): void;
-  togglePluelyApi(...): void;
+  toggleTorviApi(...): void;
   // ... etc.
 }
 ```
@@ -622,7 +656,7 @@ interface ThemeContextType {
 ```
 User types message → attach files? → attach screenshot? →
   → build system prompt + history →
-  → fetchPluelyAIResponse() (streaming async generator) →
+  → fetchTorviAIResponse() (streaming async generator) →
   → yield chunks → update message state →
   → stream complete → save to conversation
 ```
@@ -642,7 +676,7 @@ Shortcut triggered → start_system_audio_capture (Tauri) →
 #### `ai-response.function.ts` — AI Response Streaming
 ```typescript
 // Main function — async generator yielding text chunks
-async function* fetchPluelyAIResponse({
+async function* fetchTorviAIResponse({
   messages,          // Chat history
   systemPrompt,      // System instructions
   selectedProvider,  // Provider config
@@ -653,8 +687,8 @@ async function* fetchPluelyAIResponse({
 ```
 
 **Flow**:
-1. Check if should use Pluely API (license + enabled)
-2. If Pluely API → invoke `chat_stream_response` Tauri command
+1. Check if should use Torvi API (license + enabled)
+2. If Torvi API → invoke `chat_stream_response` Tauri command
 3. If custom provider → build curl-based HTTP request
 4. Poll for `chat_stream_chunk` events every 50ms
 5. Yield text chunks as they arrive
@@ -670,8 +704,8 @@ async function fetchSTT({
 ```
 
 **Flow**:
-1. Check Pluely API availability
-2. If Pluely API → `transcribe_audio` Tauri command
+1. Check Torvi API availability
+2. If Torvi API → `transcribe_audio` Tauri command
 3. If custom → build FormData from curl template, replace variables
 4. Parse response using `responseContentPath` (e.g., `results[0].alternatives[0].transcript`)
 
@@ -684,10 +718,10 @@ setByPath(obj, path, value)         // Deep property setter
 getByPath(obj, path)                // Deep property getter
 ```
 
-#### `pluely.api.ts` — Premium API Routing
+#### `torvi.api.ts` — Premium API Routing
 ```typescript
-shouldUsePluelyAPI(hasLicense, isEnabled)  // Check premium eligibility
-// Routes requests to Pluely backend when eligible
+shouldUseTorviAPI(hasLicense, isEnabled)  // Check premium eligibility
+// Routes requests to Torvi backend when eligible
 ```
 
 ### 5.9 Storage Layer (`lib/storage/`)
@@ -842,7 +876,7 @@ CONVERSATION_ID_RANDOM_LENGTH = 9
 **`main.rs`** — Minimal bootstrap:
 ```rust
 fn main() {
-    pluely_lib::run();
+    torvi_lib::run();
 }
 ```
 
@@ -855,11 +889,11 @@ fn main() {
 
 ### 6.2 Core Modules
 
-#### `api.rs` — Pluely API Integration
+#### `api.rs` — Torvi API Integration
 | Command | Purpose |
 |---------|---------|
 | `chat_stream_response()` | Stream AI completions via `/api/chat/stream` |
-| `transcribe_audio()` | Transcribe audio via Pluely STT API |
+| `transcribe_audio()` | Transcribe audio via Torvi STT API |
 | `fetch_models()` | Get available AI models |
 | `check_license_status()` | Validate license |
 | `get_activity()` | Get usage metrics |
@@ -877,9 +911,9 @@ fn main() {
 | `get_checkout_url()` | Get payment URL |
 
 Secure storage: `{app_data_dir}/secure_storage.json`
-- `pluely_license_key`
-- `pluely_instance_id` (generated once with `uuid`)
-- `selected_pluely_model`
+- `torvi_license_key`
+- `torvi_instance_id` (generated once with `uuid`)
+- `selected_torvi_model`
 
 #### `capture.rs` — Screenshot System
 | Command | Purpose |
@@ -1081,12 +1115,12 @@ User types message
          └──────────┬───────────┘
                     ▼
          ┌──────────────────┐
-         │ shouldUsePluelyAPI? │
+         │ shouldUseTorviAPI? │
          └────────┬─────────┘
             ┌─────┴─────┐
             ▼           ▼
      ┌──────────┐ ┌──────────────┐
-     │Pluely API│ │Custom Provider│
+     │Torvi API│ │Custom Provider│
      │(Tauri IPC)│ │(HTTP request)│
      └────┬─────┘ └──────┬───────┘
           │               │
@@ -1269,7 +1303,7 @@ idx_system_prompts_name (name)
 │  Custom Providers (user-defined via curl)      │
 │  └── Any REST API accepting curl templates    │
 │                                                │
-│  Pluely Premium API (requires license)        │
+│  Torvi Premium API (requires license)        │
 │  └── Routes through Tauri backend             │
 └───────────────────────────────────────────────┘
 ```
@@ -1314,8 +1348,8 @@ Variables are extracted from curl templates using `{{VARIABLE}}` pattern:
 
 ### Selection Priority
 ```
-Has active license AND Pluely API enabled?
-  → YES: Use Pluely built-in STT (transcribe_audio command)
+Has active license AND Torvi API enabled?
+  → YES: Use Torvi built-in STT (transcribe_audio command)
   → NO:  Use selected custom/built-in STT provider
 ```
 
@@ -1370,7 +1404,7 @@ Has active license AND Pluely API enabled?
 
 | Concern | Implementation |
 |---------|---------------|
-| **API Keys** | Stored in localStorage (per-provider); Pluely keys in secure_storage.json |
+| **API Keys** | Stored in localStorage (per-provider); Torvi keys in secure_storage.json |
 | **License Keys** | Stored in app data directory (`secure_storage.json`), never in localStorage |
 | **Instance ID** | UUID generated once via `uuid::Uuid::new_v4()`, stored securely |
 | **Content Protection** | `contentProtected: true` — OS-level flag prevents window capture by screen recorders |
@@ -1427,7 +1461,7 @@ License keys and instance IDs stored in `{app_data_dir}/secure_storage.json`:
 struct SecureStorage {
     license_key: Option<String>,
     instance_id: Option<String>,
-    selected_pluely_model: Option<String>,
+    selected_torvi_model: Option<String>,
 }
 ```
 - **Read/Write**: Via `secure_storage_get()` / `secure_storage_save()` Tauri commands
@@ -1438,7 +1472,7 @@ struct SecureStorage {
 
 - Provider API keys passed via curl template variables (`{{API_KEY}}`) over HTTPS
 - Each provider defines its own auth method (Bearer token, x-api-key header, Basic auth)
-- Pluely premium: License key + instance ID sent via Rust `reqwest` to Pluely backend
+- Torvi premium: License key + instance ID sent via Rust `reqwest` to Torvi backend
 
 ---
 
@@ -1533,7 +1567,7 @@ fn main() {
       "icons/32x32.png", "icons/128x128.png",
       "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"
     ],
-    "resources": ["info.plist", "pluely.desktop"],
+    "resources": ["info.plist", "torvi.desktop"],
     "macOS": { "minimumSystemVersion": "10.13" }
   }
 }
@@ -1547,7 +1581,7 @@ fn main() {
 {
   "plugins": {
     "updater": {
-      "endpoints": ["https://pluely.com/api/update"],
+      "endpoints": ["https://torvi.com/api/update"],
       "pubkey": "<minisign-public-key>",
       "windows": { "installMode": "passive" }
     }
@@ -1555,7 +1589,7 @@ fn main() {
 }
 ```
 
-- Checks `pluely.com/api/update` on startup
+- Checks `torvi.com/api/update` on startup
 - Compares `env!("CARGO_PKG_VERSION")` to latest
 - Downloads artifact + verifies minisign signature
 - Windows: Passive (silent) install
@@ -1683,7 +1717,7 @@ idx_messages_conversation_role     -- Composite: conversation + role + time
 
 ### Curl-Based Provider System
 
-The foundation of Pluely's provider architecture — **any REST API can be added as a provider** without code changes:
+The foundation of Torvi's provider architecture — **any REST API can be added as a provider** without code changes:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -1881,7 +1915,7 @@ src/
 │   ├── functions/
 │   │   ├── ai-response.function.ts  # Async generator streaming
 │   │   ├── stt.function.ts          # STT transcription
-│   │   ├── pluely.api.ts            # Premium API routing
+│   │   ├── torvi.api.ts            # Premium API routing
 │   │   └── common.function.ts       # Template processing
 │   ├── database/
 │   │   ├── chat-history.ts          # Conversation/message CRUD
@@ -1921,7 +1955,7 @@ src-tauri/
 │   └── cross-platform.json    # Windows/Linux permissions
 │
 └── src/
-    ├── main.rs                # Entry: pluely_lib::run()
+    ├── main.rs                # Entry: torvi_lib::run()
     ├── lib.rs                 # Plugin init, state, 30+ command handlers
     ├── api.rs                 # AI streaming, STT, models, license check
     ├── activate.rs            # License activate/deactivate/validate
@@ -2069,7 +2103,7 @@ END;
 ---
 
 > **End of Architecture Document**
-> Generated from complete codebase analysis of pluely-master v0.1.8
+> Generated from complete codebase analysis of torvi-master v0.1.8
 | **Window Protection** | `contentProtected: true` in Tauri config |
 | **Screen Share Safety** | Transparent overlay invisible to screen shares |
 | **Cursor Stealth** | Configurable invisible/default/auto cursor |
@@ -2105,7 +2139,7 @@ npm run tauri build # Full app build (frontend + Rust)
 {
   "updater": {
     "active": true,
-    "endpoints": ["https://pluely.com/api/update"],
+    "endpoints": ["https://torvi.com/api/update"],
     "pubkey": "ed25519 public key",
     "windows": { "installMode": "passive" }
   }
@@ -2117,7 +2151,7 @@ npm run tauri build # Full app build (frontend + Rust)
 {
   "windows": [{
     "label": "main",
-    "title": "Pluely",
+    "title": "Torvi",
     "width": 400,
     "height": 600,
     "decorations": false,
@@ -2241,7 +2275,7 @@ npm run tauri build # Full app build (frontend + Rust)
 
 ---
 
-*This architecture document was generated from a complete analysis of the pluely-master codebase. Use it as the blueprint for building your own AI assistant desktop application.*
+*This architecture document was generated from a complete analysis of the torvi-master codebase. Use it as the blueprint for building your own AI assistant desktop application.*
 
 ---
 
@@ -2249,7 +2283,7 @@ npm run tauri build # Full app build (frontend + Rust)
 
 ### 17.1 Tauri Process Model
 
-Pluely runs as a **multi-process** desktop application powered by Tauri 2.x:
+Torvi runs as a **multi-process** desktop application powered by Tauri 2.x:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -2279,7 +2313,7 @@ Pluely runs as a **multi-process** desktop application powered by Tauri 2.x:
 │                                                              │
 │  ┌─────────────────┐  ┌──────────────┐  ┌────────────────┐  │
 │  │     SQLite      │  │   Secure     │  │  localStorage  │  │
-│  │   pluely.db     │  │   Storage    │  │  (WebView)     │  │
+│  │   torvi.db     │  │   Storage    │  │  (WebView)     │  │
 │  │  (3 tables)     │  │  .json file  │  │  (~15 keys)    │  │
 │  └─────────────────┘  └──────────────┘  └────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
@@ -2288,10 +2322,10 @@ Pluely runs as a **multi-process** desktop application powered by Tauri 2.x:
 ### 17.2 Startup Sequence
 
 ```
-main.rs → pluely_lib::run()
+main.rs → torvi_lib::run()
     │
     ├─► Initialize 12+ Tauri plugins
-    │     ├── SQL (preload pluely.db, run migrations)
+    │     ├── SQL (preload torvi.db, run migrations)
     │     ├── HTTP, Updater, Keychain, Shell, Opener
     │     ├── PostHog (analytics, session recording disabled)
     │     ├── Machine UID
@@ -2382,7 +2416,7 @@ listen("event", callback)        // Frontend registers handlers
 │  │  ├── Selected provider + variables                  │  │
 │  │  ├── System prompt, screenshot config               │  │
 │  │  ├── Customizable state (icon, always-on-top, etc.) │  │
-│  │  ├── License state (active, Pluely API enabled)     │  │
+│  │  ├── License state (active, Torvi API enabled)     │  │
 │  │  └── Audio device selection                         │  │
 │  └──────────────────────┬──────────────────────────────┘  │
 │                         │ write-through                    │
@@ -2413,7 +2447,7 @@ listen("event", callback)        // Frontend registers handlers
 │  ┌──────────────────────┐  ┌──────────────────────────┐  │
 │  │    Managed States    │  │    Persistent Storage     │  │
 │  │  (in-memory, Mutex)  │  │                           │  │
-│  │                      │  │  SQLite: pluely.db        │  │
+│  │                      │  │  SQLite: torvi.db        │  │
 │  │  AudioState          │  │  ├── conversations        │  │
 │  │  ├── stream_task     │  │  ├── messages             │  │
 │  │  ├── vad_config      │  │  └── system_prompts       │  │
@@ -2455,13 +2489,13 @@ listen("event", callback)        // Frontend registers handlers
 │                  └───────────┘           │                         │
 │                                         ▼                         │
 │                          ┌──────────────────────────┐             │
-│                          │  shouldUsePluelyAPI()?    │             │
+│                          │  shouldUseTorviAPI()?    │             │
 │                          │  license + enabled check  │             │
 │                          └──────────┬───────────────┘             │
 │                              ┌──────┴──────┐                      │
 │                              ▼             ▼                      │
 │                    ┌──────────────┐ ┌─────────────────┐           │
-│                    │ PLUELY API   │ │ CUSTOM PROVIDER  │           │
+│                    │ TORVI API   │ │ CUSTOM PROVIDER  │           │
 │                    │ (Premium)    │ │ (Curl-based)     │           │
 │                    │              │ │                   │           │
 │                    │ invoke()     │ │ Build HTTP req    │           │
@@ -2531,9 +2565,9 @@ All 10 built-in AI providers + unlimited custom providers share one unified inte
 └────────────────────────────────────────────────────────────────┘
 ```
 
-### 18.3 Pluely Premium API Streaming (Rust Backend)
+### 18.3 Torvi Premium API Streaming (Rust Backend)
 
-When user has an active license and Pluely API is enabled, requests route through the Rust backend:
+When user has an active license and Torvi API is enabled, requests route through the Rust backend:
 
 ```
 Frontend invoke("chat_stream_response")
@@ -2587,7 +2621,7 @@ Rust api.rs:
 ```
 Audio Blob (WAV)
     │
-    ├── shouldUsePluelyAPI()?
+    ├── shouldUseTorviAPI()?
     │     ├── YES: invoke("transcribe_audio")
     │     │         → Rust: multipart POST with primary + fallback URL
     │     │         → Parse: tries JSON fields text/transcription/result
@@ -3009,7 +3043,7 @@ User types message and presses Enter
     │     ├── ← event: "captured-selection" (base64 PNG)
     │     └── invoke("close_overlay_window") → cleanup
     │
-    ├── shouldUsePluelyAPI()?
+    ├── shouldUseTorviAPI()?
     │     YES → invoke("chat_stream_response")
     │     │      ├── ← event: "chat_stream_chunk" × N (streaming)
     │     │      └── ← event: "chat_stream_complete" (done)
@@ -3135,7 +3169,7 @@ User types message and presses Enter
 │  lib/functions/ ── Core business logic (pure functions)          │
 │  ├── ai-response.function.ts — Async generator streaming engine │
 │  ├── stt.function.ts — STT transcription orchestration          │
-│  ├── pluely.api.ts — Premium API routing decision               │
+│  ├── torvi.api.ts — Premium API routing decision               │
 │  └── common.function.ts — Template processing, base64, paths   │
 │                                                                  │
 │  lib/database/ ── SQLite wrappers (via tauri-plugin-sql)        │
@@ -3226,7 +3260,7 @@ User types message and presses Enter
 | **Rev.ai API** | Speech-to-Text | HTTPS REST | Bearer token |
 | **IBM Watson** | Speech-to-Text | HTTPS REST | Basic auth |
 
-### 23.2 Pluely Backend Services (Premium)
+### 23.2 Torvi Backend Services (Premium)
 
 | Endpoint | Purpose | Used In |
 |----------|---------|---------|
@@ -3239,7 +3273,7 @@ User types message and presses Enter
 | `{PAYMENT_ENDPOINT}/validate` | License validity check | activate.rs |
 | `{PAYMENT_ENDPOINT}/deactivate` | License deactivation | activate.rs |
 | `{PAYMENT_ENDPOINT}/checkout` | Get payment page URL | activate.rs |
-| `pluely.com/api/update` | Auto-update check (latest version + artifacts) | tauri.conf.json |
+| `torvi.com/api/update` | Auto-update check (latest version + artifacts) | tauri.conf.json |
 
 ### 23.3 Third-Party Libraries (Frontend)
 
@@ -3320,4 +3354,4 @@ User types message and presses Enter
 
 ---
 
-*This architecture document was generated from a complete analysis of the pluely-master codebase. Use it as the blueprint for building your own AI assistant desktop application.*
+*This architecture document was generated from a complete analysis of the torvi-master codebase. Use it as the blueprint for building your own AI assistant desktop application.*

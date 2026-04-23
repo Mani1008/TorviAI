@@ -1,0 +1,20 @@
+{
+  "identifier": "main-cap",
+  "description": "Capabilities for the main overlay window only.",
+  "windows": ["main"],
+  "permissions": [
+    "global-shortcut:default",
+    "sql:default",
+    "sql:allow-execute",
+    "sql:allow-select",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://openrouter.ai/**" },
+        { "url": "https://integrate.api.nvidia.com/**" },
+        { "url": "https://streaming.assemblyai.com/**" },
+        { "url": "https://cloud.appwrite.io/**" }
+      ]
+    }
+  ]
+}

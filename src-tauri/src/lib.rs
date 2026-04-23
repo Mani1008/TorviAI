@@ -13,7 +13,7 @@ mod window;
 pub fn run() {
     // Load .env file (keys for AI/STT providers)
     if let Err(e) = dotenvy::dotenv() {
-        eprintln!("[Init] Warning: .env file not loaded: {}", e);
+        log::warn!("[Init] .env file not loaded: {}", e);
     }
 
     tauri::Builder::default()
@@ -21,6 +21,12 @@ pub fn run() {
         .manage(speaker::commands::SpeakerState::default())
         .manage(streaming_stt::StreamingSttState::default())
         // --- Plugins ---
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                // Debug/info in dev builds; only warnings and errors in release
+                .level(if cfg!(debug_assertions) { log::LevelFilter::Debug } else { log::LevelFilter::Warn })
+                .build(),
+        )
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -40,11 +46,11 @@ pub fn run() {
             // Position window at top center of screen
             window::setup_main_window(&main_window)?;
 
-            // Open the auth gate window immediately on startup.
+            // Create the auth gate window (hidden — React shows it when ready).
             // The gate will call unlock_app once the user is authenticated.
             let gate_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                window::open_gate(gate_handle).await.ok();
+                window::create_gate_hidden(gate_handle).await.ok();
             });
 
             // Register global shortcut: Ctrl+Shift+H → smart toggle overlay
@@ -65,7 +71,7 @@ pub fn run() {
                         }
                     }
                 }
-            }).unwrap_or_else(|e| eprintln!("[GlobalShortcut] Failed to register Ctrl+Shift+H: {}", e));
+            }).unwrap_or_else(|e| log::error!("[GlobalShortcut] Failed to register Ctrl+Shift+H: {}", e));
 
             // Register global shortcut: Ctrl+Shift+I → focus overlay + input field
             let h2 = app.handle().clone();
@@ -77,7 +83,7 @@ pub fn run() {
                         let _ = w.emit("focus-input", ());
                     }
                 }
-            }).unwrap_or_else(|e| eprintln!("[GlobalShortcut] Failed to register Ctrl+Shift+I: {}", e));
+            }).unwrap_or_else(|e| log::error!("[GlobalShortcut] Failed to register Ctrl+Shift+I: {}", e));
 
             Ok(())
         })
@@ -86,6 +92,7 @@ pub fn run() {
             // Window commands
             window::unlock_app,
             window::open_gate,
+            window::show_gate,
             window::set_window_height,
             window::open_dashboard,
             window::toggle_dashboard,
@@ -113,9 +120,8 @@ pub fn run() {
             speaker::commands::request_audio_permissions,
             // Auth commands
             auth::start_oauth_callback_server,
-            // API commands
-            api::get_ai_config,
-            api::check_license_status,
+            // API commands — AI requests are proxied through Rust (keys never reach frontend)
+            api::stream_ai_request,
             // Streaming STT commands
             streaming_stt::open_realtime_stt,
             streaming_stt::close_realtime_stt,

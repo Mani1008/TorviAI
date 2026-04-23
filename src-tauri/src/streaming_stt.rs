@@ -165,14 +165,14 @@ async fn establish_session(app: AppHandle, api_key: String) -> Result<mpsc::Send
     tokio::spawn(async move {
         while let Some(Ok(msg)) = ws_source.next().await {
             if let Message::Text(text) = msg {
-                // Log every message for debugging (trimmed to 200 chars)
-                println!("[StreamingSTT] Raw: {}", &text[..text.len().min(200)]);
+                // Debug-only: log raw WS message (trimmed to avoid filling logs)
+                log::debug!("[StreamingSTT] Raw: {}", &text[..text.len().min(200)]);
 
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
                     match val.get("type").and_then(|v| v.as_str()).unwrap_or("") {
                         // Session established
                         "Begin" => {
-                            println!("[StreamingSTT] Session ready — id: {:?}", val.get("id"));
+                            log::debug!("[StreamingSTT] Session ready");
                         }
                         // Speech onset — no transcript yet, skip
                         "SpeechStarted" => {}
@@ -185,7 +185,8 @@ async fn establish_session(app: AppHandle, api_key: String) -> Result<mpsc::Send
                                         .and_then(|x| x.as_bool())
                                         .unwrap_or(false);
                                     if end_of_turn {
-                                        println!("[StreamingSTT] Final: {}", &t[..t.len().min(80)]);
+                                        // Transcript is PII — debug level only (silenced in release builds)
+                                        log::debug!("[StreamingSTT] Final transcript received");
                                         let _ = app_reader.emit(
                                             "stt-final",
                                             SttTranscript { text: t.to_string(), is_final: true },
@@ -200,26 +201,23 @@ async fn establish_session(app: AppHandle, api_key: String) -> Result<mpsc::Send
                             }
                         }
                         "error" => {
-                            eprintln!("[StreamingSTT] Server error: {}", text);
+                            log::error!("[StreamingSTT] Server error: {}", text);
                         }
                         other => {
-                            println!("[StreamingSTT] Unhandled type '{}': {}", other, &text[..text.len().min(120)]);
+                            log::debug!("[StreamingSTT] Unhandled type '{}'", other);
                         }
                     }
                 }
             }
         }
 
-        println!("[StreamingSTT] WS reader ended");
+        log::debug!("[StreamingSTT] WS reader ended");
 
-        // ── Auto-reconnect (unless deliberately terminated) ──────────────────
+        // Auto-reconnect (unless deliberately terminated)
         let state = app_reader.state::<StreamingSttState>();
         if !state.is_terminated.load(Ordering::SeqCst) {
-            // Clear stale sender so send_raw_samples stops sending to a dead channel
             state.sender.lock().unwrap().take();
-            // Emit event — frontend will call open_realtime_stt after a 2s delay.
-            // This avoids spawning a non-Send future (native-TLS) inside tokio::spawn.
-            println!("[StreamingSTT] Unexpected drop — emitting stt-disconnected");
+            log::info!("[StreamingSTT] Unexpected WS drop — emitting stt-disconnected");
             let _ = app_reader.emit("stt-disconnected", ());
         }
     });
@@ -248,7 +246,7 @@ pub async fn open_realtime_stt(app: AppHandle) -> Result<(), String> {
 
     let tx = establish_session(app.clone(), api_key).await?;
     state.sender.lock().unwrap().replace(tx);
-    println!("[StreamingSTT] Session opened");
+    log::info!("[StreamingSTT] Session opened");
     Ok(())
 }
 
@@ -262,6 +260,6 @@ pub async fn close_realtime_stt(app: AppHandle) -> Result<(), String> {
     if let Some(tx) = maybe_tx {
         let _ = tx.send(SttMsg::Terminate).await;
     }
-    println!("[StreamingSTT] Session closed");
+    log::info!("[StreamingSTT] Session closed");
     Ok(())
 }

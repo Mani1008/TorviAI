@@ -20,8 +20,10 @@ export function processUserMessageTemplate(
   images?: string[]
 ): string {
   let result = curl.replace(/\{\{TEXT\}\}/g, escapeJsonString(text));
+  // Escape to prevent JSON injection — image data URIs contain characters that
+  // could break the surrounding JSON template if inserted unescaped.
   if (images && images.length > 0) {
-    result = result.replace(/\{\{IMAGE\}\}/g, images[0]);
+    result = result.replace(/\{\{IMAGE\}\}/g, escapeJsonString(images[0]));
   }
   return result;
 }

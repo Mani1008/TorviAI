@@ -1,0 +1,8 @@
+{
+  "identifier": "gate-cap",
+  "description": "Minimal capabilities for the auth gate window. No SQL, no shortcuts, no autostart.",
+  "windows": ["gate"],
+  "permissions": [
+    "opener:default"
+  ]
+}

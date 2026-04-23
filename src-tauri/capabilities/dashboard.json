@@ -1,0 +1,19 @@
+{
+  "identifier": "dashboard-cap",
+  "description": "Capabilities for the dashboard/settings window only.",
+  "windows": ["dashboard"],
+  "permissions": [
+    "sql:default",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "shell:allow-open",
+    "opener:default",
+    "autostart:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://cloud.appwrite.io/**" }
+      ]
+    }
+  ]
+}

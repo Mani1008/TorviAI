@@ -101,7 +101,7 @@ function ShortcutsStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
         </button>
         <button onClick={onNext} className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
           Next <ChevronRight className="h-4 w-4" />
-        </button>
+        </button>   
       </div>
     </div>
   );

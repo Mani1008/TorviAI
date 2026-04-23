@@ -147,8 +147,33 @@ pub async fn open_gate(app: AppHandle) -> Result<(), String> {
         apply_background_process_style(&window);
         return Ok(());
     }
+    create_gate_window(&app, true).await
+}
+
+/// Creates the gate window hidden — React will call show_gate when ready.
+pub async fn create_gate_hidden(app: AppHandle) -> Result<(), String> {
+    if app.get_webview_window("gate").is_some() {
+        return Ok(());
+    }
+    create_gate_window(&app, false).await
+}
+
+/// Show the gate window (called from frontend when the sign-in UI is ready).
+#[tauri::command]
+pub async fn show_gate(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("gate") {
+        window.show().map_err(|e: tauri::Error| e.to_string())?;
+        window.set_focus().map_err(|e: tauri::Error| e.to_string())?;
+        #[cfg(target_os = "windows")]
+        apply_background_process_style(&window);
+    }
+    Ok(())
+}
+
+/// Internal: builds the gate webview window.
+async fn create_gate_window(app: &AppHandle, show: bool) -> Result<(), String> {
     let url = WebviewUrl::App("/gate".into());
-    let window = tauri::WebviewWindowBuilder::new(&app, "gate", url)
+    let window = tauri::WebviewWindowBuilder::new(app, "gate", url)
         .title("Torvi — Sign In")
         .inner_size(480.0, 600.0)
         .resizable(false)
@@ -159,8 +184,10 @@ pub async fn open_gate(app: AppHandle) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    window.show().map_err(|e: tauri::Error| e.to_string())?;
-    window.set_focus().map_err(|e: tauri::Error| e.to_string())?;
+    if show {
+        window.show().map_err(|e: tauri::Error| e.to_string())?;
+        window.set_focus().map_err(|e: tauri::Error| e.to_string())?;
+    }
 
     #[cfg(target_os = "windows")]
     apply_background_process_style(&window);
@@ -198,7 +225,7 @@ pub async fn open_dashboard(app: AppHandle) -> Result<(), String> {
         .visible(false)
         .decorations(false)
         .skip_taskbar(true)
-        .content_protected(true);
+        .content_protected(false);
 
     let window = builder.build().map_err(|e| e.to_string())?;
 

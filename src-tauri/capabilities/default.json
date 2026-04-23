@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default capabilities for the app",
+  "description": "Base window capabilities shared by all windows (core only).",
   "windows": ["main", "dashboard", "gate"],
   "permissions": [
     "core:default",
@@ -15,18 +15,6 @@
     "core:window:allow-is-visible",
     "core:window:allow-outer-position",
     "core:window:allow-outer-size",
-    "core:window:allow-current-monitor",
-    "core:webview:allow-create-webview-window",
-    "shell:allow-open",
-    "opener:default",
-    "sql:default",
-    "sql:allow-execute",
-    "sql:allow-select",
-    {
-      "identifier": "http:default",
-      "allow": [{ "url": "https://**" }, { "url": "http://**" }]
-    },
-    "global-shortcut:default",
-    "autostart:default"
+    "core:window:allow-current-monitor"
   ]
 }

@@ -6,12 +6,20 @@ import {
   createConversation,
   addMessage,
 } from "@/lib/database";
-import { incrementAiResponses } from "@/lib/storage/usage-stats";
+import { incrementAiResponses, checkAiResponseLimit } from "@/lib/storage/usage-stats";
+import { decrementAiResponses, syncConversation } from "@/lib/appwrite";
+import { loadUserProfile } from "@/lib/storage/auth";
 
 /**
  * Hook for the main overlay chat.
  * Manages messages, file attachments, streaming AI responses.
  */
+
+/** Maximum character length for a single user message. */
+const MAX_MESSAGE_LENGTH = 32_000;
+/** Maximum number of messages to include in the API context window. */
+const MAX_CONTEXT_MESSAGES = 50;
+
 export function useCompletion() {
   const { systemPrompt } = useAppContext();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -23,11 +31,25 @@ export function useCompletion() {
   const sendMessage = useCallback(
     async (text: string, images?: string[]) => {
       if (!text.trim() || isLoading) return;
+
+      // Enforce message length limit
+      if (text.length > MAX_MESSAGE_LENGTH) {
+        setError(`Message is too long (max ${MAX_MESSAGE_LENGTH.toLocaleString()} characters).`);
+        return;
+      }
+
       setError(null);
+
+      // Enforce plan limit before making the AI call
+      const limitError = checkAiResponseLimit();
+      if (limitError) {
+        setError(limitError);
+        return;
+      }
 
       // Create a conversation if this is the first message
       if (!conversationIdRef.current) {
-        conversationIdRef.current = `conv-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        conversationIdRef.current = crypto.randomUUID();
         const title = text.length > 50 ? text.substring(0, 50) + "..." : text;
         createConversation(conversationIdRef.current, title).catch(console.error);
       }
@@ -47,8 +69,9 @@ export function useCompletion() {
         addMessage(conversationIdRef.current, userMessage).catch(console.error);
       }
 
-      // Build API messages
-      const apiMessages: Message[] = messages.map((m) => ({
+      // Build API messages — cap history to avoid unbounded token growth
+      const recentMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
+      const apiMessages: Message[] = recentMessages.map((m) => ({
         role: m.role,
         content: m.content,
       }));
@@ -87,16 +110,20 @@ export function useCompletion() {
       } catch (err) {
         if ((err as Error).name !== "AbortError") {
           const errMsg = (err as Error).message || String(err);
-          if (errMsg.includes("401") || errMsg.includes("Unauthorized")) {
+          // Map provider errors to user-safe messages — do not expose raw API responses
+          if (errMsg.includes("401") || errMsg.includes("Unauthorized") || errMsg.includes("Authentication error")) {
             setError("Authentication error. Please contact support.");
-          } else if (errMsg.includes("429") || errMsg.includes("rate limit")) {
+          } else if (errMsg.includes("429") || errMsg.includes("rate limit") || errMsg.includes("Rate limited")) {
             setError("Rate limited. Please wait a moment and try again.");
-          } else if (errMsg.includes("500") || errMsg.includes("server error")) {
+          } else if (errMsg.includes("500") || errMsg.includes("server error") || errMsg.includes("Server error")) {
             setError("AI provider server error. Try again later.");
-          } else if (errMsg.includes("fetch") || errMsg.includes("network") || errMsg.includes("Failed to fetch")) {
+          } else if (errMsg.includes("fetch") || errMsg.includes("network") || errMsg.includes("Failed to fetch") || errMsg.includes("Network error")) {
             setError("Network error. Check your connection.");
+          } else if (errMsg.includes("Stream interrupted")) {
+            setError("Stream interrupted. Try again.");
           } else {
-            setError(errMsg.length > 120 ? errMsg.substring(0, 120) + "…" : errMsg);
+            // Generic fallback — do not show raw provider error text to the user
+            setError("Something went wrong. Please try again.");
           }
           console.error("[useCompletion] Error:", err);
         }
@@ -109,8 +136,18 @@ export function useCompletion() {
           addMessage(conversationIdRef.current, assistantMessage).catch(
             console.error
           );
-          // Track AI response for usage/billing
+          // Track AI response for usage/billing (local + remote)
           incrementAiResponses();
+          const profile = loadUserProfile();
+          if (profile?.id) {
+            decrementAiResponses(profile.id).catch(console.warn);
+            syncConversation(profile.id, {
+              id: conversationIdRef.current,
+              title: messages[0]?.content?.slice(0, 50) || "New conversation",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            }).catch(console.warn);
+          }
         }
       }
     },

@@ -7,60 +7,132 @@ import { APP_URL } from "@/config/constants";
 import { saveAuthToken, verifyToken } from "@/lib/auth";
 import { saveUserProfile } from "@/lib/storage/auth";
 
-// ─── Local HTTP callback server ───────────────────────────────────────────────
-// Rust command `start_oauth_callback_server` binds a random loopback port and
-// returns it. We tell the web app to redirect to that port after login.
-// When the token arrives via the `oauth-callback-received` event, we store it
-// and unlock the pill bar.
-// ─────────────────────────────────────────────────────────────────────────────
+// Lazy-import Appwrite modules to prevent gate crash if appwrite isn't configured
+type AppwriteModule = Awaited<typeof import("@/lib/appwrite")>;
+let _appwrite: AppwriteModule | null = null;
+async function getAppwrite(): Promise<AppwriteModule> {
+  if (!_appwrite) _appwrite = await import("@/lib/appwrite");
+  return _appwrite;
+}
 
 interface CallbackPayload {
   token: string;
+  user_id: string;
+  secret: string;
+  provider: string;
+  state: string;
+}
+
+async function unlockAndSync() {
+  try {
+    await invoke("unlock_app");
+    // Run background Appwrite sync (non-blocking)
+    const aw = await getAppwrite();
+    aw.runStartupSync().catch((e: unknown) => console.warn("[Gate] Startup sync error:", e));
+  } catch (e) {
+    console.error("[Gate] unlock_app failed:", e);
+  }
 }
 
 export default function Gate() {
   const [status, setStatus] = useState<"idle" | "checking" | "waiting" | "done">("checking");
   const [error, setError] = useState<string | null>(null);
 
-  // On mount: check if a valid stored token already exists
+  // On mount: check for existing session (Appwrite first, then legacy)
   useEffect(() => {
-    verifyToken().then((user) => {
-      if (user) {
-        // Already authenticated — save profile and unlock immediately
-        saveUserProfile({
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          plan: (user.plan as "starter" | "plus" | "pro") || "starter",
-        });
-        invoke("unlock_app").catch(console.error);
-        setStatus("done");
-      } else {
-        setStatus("idle");
+    (async () => {
+      try {
+        // Try Appwrite session first
+        const aw = await getAppwrite();
+        if (aw.isAppwriteConfigured()) {
+          const awUser = await aw.getActiveSession();
+          if (awUser) {
+            const profile = await aw.resolveUserProfile(awUser);
+            saveUserProfile(profile);
+            setStatus("done");
+            await unlockAndSync();
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("[Gate] Appwrite check failed, falling back to legacy:", e);
       }
-    });
+
+      try {
+        // Fall back to legacy JWT verification
+        const user = await verifyToken();
+        if (user) {
+          saveUserProfile({
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            plan: (user.plan as "starter" | "plus" | "pro") || "starter",
+          });
+          setStatus("done");
+          await unlockAndSync();
+          return;
+        }
+      } catch (e) {
+        console.warn("[Gate] Legacy auth check failed:", e);
+      }
+
+      // No auth found — show the gate window so user can sign in
+      setStatus("idle");
+      invoke("show_gate").catch((e) => console.warn("[Gate] show_gate failed:", e));
+    })();
   }, []);
 
-  // Listen for the token delivered by the local callback server
+  // Listen for the OAuth callback from the local HTTP server
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
     listen<CallbackPayload>("oauth-callback-received", async (event) => {
-      const { token } = event.payload;
-      if (!token) return;
-      saveAuthToken(token);
-      const user = await verifyToken();
-      if (user) {
-        saveUserProfile({
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          plan: (user.plan as "starter" | "plus" | "pro") || "starter",
-        });
-        invoke("unlock_app").catch(console.error);
-        setStatus("done");
-      } else {
-        setError("Sign-in failed — the token was invalid. Please try again.");
+      const { token, user_id, secret, state } = event.payload;
+
+      // Validate CSRF state nonce before processing
+      const expectedNonce = sessionStorage.getItem("oauth_state_nonce");
+      sessionStorage.removeItem("oauth_state_nonce"); // consume immediately
+      if (!expectedNonce || state !== expectedNonce) {
+        console.error("[Gate] OAuth state nonce mismatch — possible CSRF");
+        setError("Sign-in failed — invalid state. Please try again.");
+        setStatus("idle");
+        return;
+      }
+
+      try {
+        // ── Appwrite OAuth callback ──
+        if (user_id && secret) {
+          const aw = await getAppwrite();
+          const awUser = await aw.createSessionFromOAuth(user_id, secret);
+          const profile = await aw.resolveUserProfile(awUser);
+          saveUserProfile(profile);
+          setStatus("done");
+          await unlockAndSync();
+          return;
+        }
+
+        // ── Legacy OAuth callback (JWT from landing page) ──
+        if (token) {
+          saveAuthToken(token);
+          const user = await verifyToken();
+          if (user) {
+            saveUserProfile({
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              plan: (user.plan as "starter" | "plus" | "pro") || "starter",
+            });
+            setStatus("done");
+            await unlockAndSync();
+            return;
+          }
+        }
+
+        setError("Sign-in failed — please try again.");
+        setStatus("idle");
+      } catch (err) {
+        console.error("[Gate] Auth callback error:", err);
+        setError("Sign-in failed — please try again.");
         setStatus("idle");
       }
     }).then((fn) => { unlisten = fn; });
@@ -72,11 +144,23 @@ export default function Gate() {
     setError(null);
     setStatus("waiting");
     try {
-      // Start the local callback server → gets a free port
+      // Generate a cryptographic nonce for CSRF protection.
+      // Stored in sessionStorage and validated when the callback arrives.
+      const stateNonce = crypto.randomUUID();
+      sessionStorage.setItem("oauth_state_nonce", stateNonce);
+
       const port = await invoke<number>("start_oauth_callback_server");
-      // Open the landing page login URL, pass callback port as a query param
-      const loginUrl = `${APP_URL}/login?callback_port=${port}`;
-      await openUrl(loginUrl);
+
+      const aw = await getAppwrite();
+      if (aw.isAppwriteConfigured()) {
+        // Open Appwrite's Google OAuth URL — nonce is embedded in success redirect URL
+        const oauthUrl = aw.getOAuthUrl(port, stateNonce);
+        await openUrl(oauthUrl);
+      } else {
+        // Legacy: open landing page login with state nonce
+        const loginUrl = `${APP_URL}/login?callback_port=${port}&state=${encodeURIComponent(stateNonce)}`;
+        await openUrl(loginUrl);
+      }
     } catch (err) {
       console.error("[Gate] Failed to open sign-in:", err);
       setError("Could not open the browser. Please try again.");

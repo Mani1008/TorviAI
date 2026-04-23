@@ -1,6 +1,6 @@
 # System Audio Capture — Complete Architecture & Implementation Guide
 
-> **Scope**: End-to-end documentation of Pluely's system audio capture pipeline — from OS-level loopback capture through Voice Activity Detection, encoding, Speech-to-Text, and AI response streaming.
+> **Scope**: End-to-end documentation of Torvi's system audio capture pipeline — from OS-level loopback capture through Voice Activity Detection, encoding, Speech-to-Text, and AI response streaming.
 
 ---
 
@@ -198,7 +198,7 @@ The ring buffer integrates with Tokio's async runtime:
 
 ### File: `src-tauri/src/speaker/commands.rs`
 
-Pluely uses a **custom VAD algorithm** — NOT a neural network. It's a lightweight state machine based on audio energy metrics (RMS and peak amplitude).
+Torvi uses a **custom VAD algorithm** — NOT a neural network. It's a lightweight state machine based on audio energy metrics (RMS and peak amplitude).
 
 ### VAD Configuration
 
@@ -617,7 +617,7 @@ Step 4: Event Transport
 Step 5: Speech-to-Text
   └─ Decode: atob(base64) → Uint8Array → Blob("audio/wav")
        └─ Send to STT provider:
-            ├─ Pluely API: POST with audio blob
+            ├─ Torvi API: POST with audio blob
             └─ Custom cURL: User-configured endpoint
        └─ Receive transcription text (30-second timeout)
 
@@ -710,11 +710,11 @@ interface VadConfig {
 
 | Key | Value | Purpose |
 |-----|-------|---------|
-| `pluely-vad-config` | JSON (VadConfig) | Persist VAD settings across restarts |
-| `pluely-stt-provider` | String (provider ID) | Selected STT provider |
-| `pluely-use-system-prompt` | Boolean | Whether to use system prompt |
-| `pluely-quick-actions` | JSON (array) | Saved quick action presets |
-| `pluely-conversation` | IndexedDB | Full conversation history |
+| `torvi-vad-config` | JSON (VadConfig) | Persist VAD settings across restarts |
+| `torvi-stt-provider` | String (provider ID) | Selected STT provider |
+| `torvi-use-system-prompt` | Boolean | Whether to use system prompt |
+| `torvi-quick-actions` | JSON (array) | Saved quick action presets |
+| `torvi-conversation` | IndexedDB | Full conversation history |
 
 ---
 
@@ -1668,4 +1668,4 @@ export function AudioVisualizer({ stream }: { stream: MediaStream | null }) {
 
 ---
 
-*Generated from analysis of the Pluely codebase. This document covers the complete system audio capture pipeline — from hardware loopback through Voice Activity Detection, encoding, Speech-to-Text, and AI response streaming.*
+*Generated from analysis of the Torvi codebase. This document covers the complete system audio capture pipeline — from hardware loopback through Voice Activity Detection, encoding, Speech-to-Text, and AI response streaming.*

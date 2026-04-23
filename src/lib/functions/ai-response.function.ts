@@ -3,6 +3,7 @@ import type { TYPE_PROVIDER } from "@/types/provider.type";
 import { getByPath } from "./common.function";
 import { fetch } from "@tauri-apps/plugin-http";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { loadSelectedModel } from "@/lib/storage/ai-providers";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -22,15 +23,6 @@ interface StreamAIFromConfigParams {
   images?: string[];
   abortSignal?: AbortSignal;
   modelId?: string;
-}
-
-interface AiConfig {
-  url: string;
-  method: string;
-  headers: Record<string, string>;
-  body_template: string;
-  streaming: boolean;
-  response_content_path: string;
 }
 
 /**
@@ -90,13 +82,15 @@ function parseCurlTemplate(curl: string): {
 
 /**
  * Replace {{VARIABLE}} placeholders in a string with values from the variables map.
+ * CRLF characters are stripped from substituted values to prevent HTTP header injection
+ * when the result is used as a header value.
  */
 function substituteVariables(
   template: string,
   variables: Record<string, string>
 ): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    return variables[key] ?? "";
+    return (variables[key] ?? "").replace(/[\r\n]/g, "");
   });
 }
 
@@ -124,9 +118,9 @@ function buildRequestBody(
     typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
   body = body.replace(/\{\{TEXT\}\}/g, escapeJsonString(userText));
 
-  // Handle {{IMAGE}} placeholder
+  // Handle {{IMAGE}} placeholder — escape to prevent JSON injection
   if (images && images.length > 0) {
-    body = body.replace(/\{\{IMAGE\}\}/g, images[0]);
+    body = body.replace(/\{\{IMAGE\}\}/g, escapeJsonString(images[0]));
   }
 
   // Try to inject full message history into the body
@@ -231,8 +225,17 @@ export async function* fetchAIResponse(
     });
 
     if (!response.ok) {
+      // Do not expose raw provider error bodies — log to console, yield safe message
       const errorText = await response.text();
-      yield `Error ${response.status}: ${errorText.substring(0, 500)}`;
+      console.error(`[fetchAIResponse] HTTP ${response.status}:`, errorText.substring(0, 500));
+      const msg = response.status === 401 || response.status === 403
+        ? "Authentication error. Please contact support."
+        : response.status === 429
+        ? "Rate limited. Please wait a moment."
+        : response.status >= 500
+        ? "AI provider error. Try again later."
+        : "Request failed. Please try again.";
+      yield msg;
       return;
     }
 
@@ -251,7 +254,9 @@ export async function* fetchAIResponse(
     }
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
-    yield `Error: ${(err as Error).message}`;
+    // Log full error but yield only a safe generic message
+    console.error("[fetchAIResponse]", err);
+    yield "Request failed. Please check your connection and try again.";
   }
 }
 
@@ -322,84 +327,20 @@ async function* parseSSEStream(
 }
 
 // ─── Config-based AI Streaming ───────────────────────────────────────────────
-// Gets AI config (URL, auth headers) from Rust backend, then streams in the frontend.
+// Sends messages to the Rust backend which holds API keys and proxies the HTTP
+// request. Chunks are received as Tauri events keyed by request_id, converted
+// to an async generator so callers are unchanged.
 
 /**
- * Shared: build messages + stream with a given AiConfig.
- */
-async function* executeStreamWithConfig(
-  config: AiConfig,
-  messages: Message[],
-  systemPrompt: string,
-  images: string[] | undefined,
-  abortSignal: AbortSignal | undefined
-): AsyncGenerator<string> {
-  // Build messages array — system prompt as first message (OpenAI-compatible)
-  const fullMessages: Message[] = [];
-  if (systemPrompt) {
-    fullMessages.push({ role: "system", content: systemPrompt });
-  }
-  const historyMessages = messages.filter((m) => m.role !== "system");
-
-  if (images && images.length > 0) {
-    const lastUserIdx = [...historyMessages].map((m) => m.role).lastIndexOf("user");
-    for (let i = 0; i < historyMessages.length; i++) {
-      if (i === lastUserIdx) {
-        const textContent =
-          typeof historyMessages[i].content === "string"
-            ? (historyMessages[i].content as string)
-            : "";
-        fullMessages.push({
-          role: "user",
-          content: [
-            { type: "text", text: textContent },
-            ...images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
-          ],
-        });
-      } else {
-        fullMessages.push(historyMessages[i]);
-      }
-    }
-  } else {
-    fullMessages.push(...historyMessages);
-  }
-
-  const messagesJson = JSON.stringify(fullMessages);
-  const body = config.body_template.replace('"{{MESSAGES_JSON}}"', messagesJson);
-
-  try {
-    const response = await fetch(config.url, {
-      method: config.method,
-      headers: config.headers,
-      body,
-      signal: abortSignal,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      yield `Error ${response.status}: ${errorText.substring(0, 500)}`;
-      return;
-    }
-
-    if (config.streaming) {
-      yield* parseSSEStream(response, config.response_content_path, abortSignal);
-    } else {
-      const json = await response.json();
-      const nonStreamPath = config.response_content_path.replace(".delta.", ".message.");
-      const content = getByPath(json, nonStreamPath);
-      if (typeof content === "string") {
-        yield content;
-      }
-    }
-  } catch (err) {
-    if ((err as Error).name === "AbortError") return;
-    yield `Error: ${(err as Error).message}`;
-  }
-}
-
-/**
- * Stream an AI response using config obtained from the Rust backend.
- * The API key is managed by Torvi — users only select a model.
+ * Stream an AI response via the Rust backend proxy.
+ *
+ * The Rust command `stream_ai_request` holds the API keys and makes the HTTP
+ * call. It emits:
+ *   `ai-chunk-{requestId}` — { content: string }
+ *   `ai-done-{requestId}`  — stream complete
+ *   `ai-error-{requestId}` — { error: string } user-safe message
+ *
+ * API keys are never sent to the frontend.
  */
 export async function* streamAIFromConfig(
   params: StreamAIFromConfigParams
@@ -409,13 +350,74 @@ export async function* streamAIFromConfig(
   if (abortSignal?.aborted) return;
 
   const resolvedModel = modelId ?? loadSelectedModel();
-  let config: AiConfig;
-  try {
-    config = await invoke<AiConfig>("get_ai_config", { modelId: resolvedModel });
-  } catch (err) {
-    yield `Error: Failed to get AI config — ${err}`;
-    return;
-  }
+  const requestId = crypto.randomUUID();
 
-  yield* executeStreamWithConfig(config, messages, systemPrompt, images, abortSignal);
+  // Queue to bridge Tauri events → async generator
+  const queue: string[] = [];
+  let done = false;
+  let streamError: string | null = null;
+  let resolver: (() => void) | null = null;
+  const wake = () => { const r = resolver; resolver = null; r?.(); };
+
+  // Register listeners BEFORE invoke to guarantee no events are dropped
+  const [unlistenChunk, unlistenDone, unlistenError] = await Promise.all([
+    listen<{ content: string }>(`ai-chunk-${requestId}`, (e) => {
+      queue.push(e.payload.content);
+      wake();
+    }),
+    listen<unknown>(`ai-done-${requestId}`, () => {
+      done = true;
+      wake();
+    }),
+    listen<{ error: string }>(`ai-error-${requestId}`, (e) => {
+      streamError = e.payload.error;
+      done = true;
+      wake();
+    }),
+  ]);
+
+  // Filter out any system messages — Rust injects system_prompt as first message
+  const apiMessages = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({ role: m.role, content: m.content }));
+
+  // Start the Rust streaming request (non-blocking; result arrives as events)
+  invoke("stream_ai_request", {
+    modelId: resolvedModel,
+    messages: apiMessages,
+    systemPrompt,
+    images: images ?? null,
+    requestId,
+  }).catch((err: unknown) => {
+    streamError = `Failed to start AI request: ${String(err)}`;
+    done = true;
+    wake();
+  });
+
+  try {
+    while (true) {
+      // Drain buffered chunks
+      while (queue.length > 0) {
+        yield queue.shift()!;
+      }
+      if (done) {
+        // Drain any final chunks that arrived before the done event
+        while (queue.length > 0) {
+          yield queue.shift()!;
+        }
+        if (streamError) yield streamError;
+        return;
+      }
+      if (abortSignal?.aborted) return;
+      // Park until the next event
+      await new Promise<void>((res) => {
+        resolver = res;
+        abortSignal?.addEventListener("abort", () => res(), { once: true });
+      });
+    }
+  } finally {
+    unlistenChunk();
+    unlistenDone();
+    unlistenError();
+  }
 }

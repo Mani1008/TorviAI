@@ -1,7 +1,21 @@
-# Pluely — Complete Feature Reference
+# Torvi — Complete Feature Reference (Updated April 2026)
 
-> Every feature implemented in this repository, grouped by category.  
+> Every feature implemented in this repository, grouped by category.
 > Each entry documents where it is implemented, which files are involved, what libraries are used, and how the logic works.
+>
+> **Note**: This project was renamed from Torvi to Torvi. Some internal references below may still use the old name.
+
+## Recent Changes (v0.3)
+- **Branding**: Torvi → Torvi throughout all source files and UI.
+- **Authentication**: Dual auth (Appwrite OAuth + Legacy JWT). Gate window starts hidden; React shows it only when sign-in is needed.
+- **AI Models**: Multi-model selection via Settings UI. OpenRouter + NVIDIA NIM. Model choice persists to localStorage and is used in API calls.
+- **Response Language**: Removed from UI (was not connected to AI pipeline). Will be re-added later.
+- **Screenshot**: Auto-capture removed. Manual-only mode.
+- **System Prompt**: Rich structured default prompt with Torvi persona.
+- **Billing**: 3-tier pricing (Starter/Plus/Pro) with GST, adjustable add-ons.
+- **Usage Limits**: `checkAiResponseLimit()` enforced before AI calls.
+- **Appwrite Sync**: 7 sync modules created (profiles, conversations, prompts, settings). Not yet connected to live DB.
+- **Gate Window**: No longer flashes blank on startup — created hidden, shown only when user input is needed.
 
 ---
 
@@ -23,7 +37,7 @@
    - 2.3 AI Response Streaming Engine
    - 2.4 Built-in AI Providers (10)
    - 2.5 Custom AI Provider Management
-   - 2.6 Pluely Premium API (Hosted Backend)
+   - 2.6 Torvi Premium API (Hosted Backend)
    - 2.7 Response Length Configuration
    - 2.8 Response Language Configuration
    - 2.9 System Prompts
@@ -166,7 +180,7 @@ All dashboard routes are wrapped in `<DashboardLayout>` which provides the sideb
 - **System Prompt**: Active prompt text, loaded from SQLite system_prompts table
 - **Screenshot Configuration**: `{ enabled, mode: 'auto'|'manual', autoPrompt }`
 - **Customizable State**: `{ appIcon.isVisible, alwaysOnTop.isEnabled, autostart.isEnabled, cursor.type }`
-- **License State**: `hasActiveLicense` (boolean), `pluelyApiEnabled` (boolean)
+- **License State**: `hasActiveLicense` (boolean), `torviApiEnabled` (boolean)
 - **Audio Devices**: Selected input/output device IDs
 
 On mount, `loadData()` reads all state from localStorage. Each setter writes through to localStorage via `useEffect`. cURL templates are validated on load using `curl2Json()` — invalid templates are filtered out. Variables are extracted using `{{VARIABLE}}` regex pattern.
@@ -202,7 +216,7 @@ Three theme modes: `light`, `dark`, `system`. The system mode uses `window.match
 **Libraries:** `tauri-plugin-sql` (frontend), SQLite (backend)
 
 **How it works:**  
-Database singleton is created via `Database.load('sqlite:pluely.db')`. Two migration files run at startup:
+Database singleton is created via `Database.load('sqlite:torvi.db')`. Two migration files run at startup:
 1. **v1 — system_prompts**: `system_prompts` table with id, name, prompt, created_at, updated_at columns. Index on name. Trigger to auto-update `updated_at`.
 2. **v2 — chat-history**: `conversations` table (id TEXT PK, title, created_at, updated_at) + `messages` table (id INTEGER PK, conversation_id FK, role CHECK('user'|'assistant'|'system'), content, timestamp, attached_files TEXT). 6 indexes for fast queries. 2 triggers to auto-update conversation timestamps on message INSERT/UPDATE.
 
@@ -280,7 +294,7 @@ The `AppContext` registers a `window.addEventListener('storage', ...)` listener.
 **How it works:**  
 The `<ErrorBoundary>` component wraps the full React tree. On unhandled errors:
 - **Overlay mode**: Shows compact error with a reload button + drag button (to still allow window movement)
-- **Dashboard mode**: Shows full-page error with Pluely branding, error message, and reload button
+- **Dashboard mode**: Shows full-page error with Torvi branding, error message, and reload button
 
 ---
 
@@ -300,7 +314,7 @@ The `<ErrorBoundary>` component wraps the full React tree. On unhandled errors:
 **How it works:**  
 1. User types a message in the input field and presses Enter
 2. Hook builds a messages array: system prompt + conversation history + user message + attached images
-3. Calls `fetchAIResponse()` which routes to either Pluely API or custom cURL provider
+3. Calls `fetchAIResponse()` which routes to either Torvi API or custom cURL provider
 4. Streams response via async generator → updates `response` state in real-time → popover opens showing streamed markdown
 5. On completion, saves the conversation to SQLite with a 500ms debounce
 
@@ -346,14 +360,14 @@ The `<ErrorBoundary>` component wraps the full React tree. On unhandled errors:
 **Files involved:**
 - `src/lib/functions/ai-response.function.ts` — Core streaming engine
 - `src/lib/functions/common.function.ts` — Template processing, variable replacement
-- `src-tauri/src/api.rs` — Rust-side SSE streaming for Pluely API
+- `src-tauri/src/api.rs` — Rust-side SSE streaming for Torvi API
 
 **Libraries:** Tauri invoke/listen, `@bany/curl-to-json`
 
 **How it works:**  
 Two execution paths:
 
-**Path A — Pluely Premium API:**
+**Path A — Torvi Premium API:**
 1. Frontend calls `chat_stream_response` Tauri command
 2. Rust fetches API config from `{APP_ENDPOINT}/api/response` (returns URL, token, model, extra body params)
 3. Rust builds OpenAI-compatible request with messages array, POSTs with `stream: true`
@@ -425,20 +439,20 @@ Users can edit, delete, or duplicate providers. Auto-fill templates are availabl
 
 ---
 
-### 2.6 Pluely Premium API (Hosted Backend)
+### 2.6 Torvi Premium API (Hosted Backend)
 
 **Implemented in:** Rust API module + frontend routing logic  
 **Files involved:**
 - `src-tauri/src/api.rs` — Streaming, transcription, models, activity
-- `src/lib/functions/pluely.api.ts` — `shouldUsePluelyAPI()` routing decision
+- `src/lib/functions/torvi.api.ts` — `shouldUseTorviAPI()` routing decision
 - `src/pages/dashboard/` — Usage dashboard
 
 **Libraries:** `reqwest` (Rust), `serde_json`
 
 **How it works:**  
-When user has an active license and Pluely API is enabled (`shouldUsePluelyAPI()` returns true), requests route through the Rust backend:
-- `fetch_api_response_config` → GET to Pluely server with license/machine headers → returns AI routing config
-- `chat_stream_response` → SSE streaming with OpenAI-compatible format through Pluely's proxy
+When user has an active license and Torvi API is enabled (`shouldUseTorviAPI()` returns true), requests route through the Rust backend:
+- `fetch_api_response_config` → GET to Torvi server with license/machine headers → returns AI routing config
+- `chat_stream_response` → SSE streaming with OpenAI-compatible format through Torvi's proxy
 - `transcribe_audio` → POST audio with primary + fallback endpoints
 - `fetch_models` → GET available model list
 - `get_activity` → GET usage statistics → displayed in dashboard as line chart (recharts)
@@ -566,7 +580,7 @@ Images are converted to base64 via FileReader and stored as `AttachedFile` objec
 
 ### 2.14 AI-Assisted System Prompt Generation
 
-**Implemented in:** System prompts page + Pluely API  
+**Implemented in:** System prompts page + Torvi API  
 **Files involved:**
 - `src/pages/system-prompts/index.tsx` — Generate button
 - `src-tauri/src/api.rs` — `create_system_prompt` command
@@ -574,7 +588,7 @@ Images are converted to base64 via FileReader and stored as `AttachedFile` objec
 **Libraries:** Tauri invoke, `reqwest`
 
 **How it works:**  
-User clicks "Generate" → sends a description to `{APP_ENDPOINT}/api/prompt` via the `create_system_prompt` Tauri command → Pluely server uses AI to generate a complete system prompt → returned to frontend → auto-fills the prompt text field.
+User clicks "Generate" → sends a description to `{APP_ENDPOINT}/api/prompt` via the `create_system_prompt` Tauri command → Torvi server uses AI to generate a complete system prompt → returned to frontend → auto-fills the prompt text field.
 
 ---
 
@@ -875,7 +889,7 @@ macOS requires screen recording permission (checked before capture). 300ms debou
 **Libraries:** `tauri-plugin-updater`, `tauri-plugin-process`
 
 **How it works:**  
-On component mount, checks `https://pluely.com/api/update/{target}/{arch}/{current_version}` for updates. If one is found:
+On component mount, checks `https://torvi.com/api/update/{target}/{arch}/{current_version}` for updates. If one is found:
 1. Shows popover with version info + release notes (rendered as markdown)
 2. "Download & Install" button initiates download
 3. Progress tracking shows downloaded bytes, content length, percentage
@@ -1020,7 +1034,7 @@ Appears on hover over code blocks. Clicking copies the code content to clipboard
 
 **How it works:**  
 256px wide sidebar with:
-- Pluely logo + version number (loaded via `getVersion()` Tauri command)
+- Torvi logo + version number (loaded via `getVersion()` Tauri command)
 - 9 navigation items with icons and active state highlighting (rounded background on active route)
 - Item count badges (e.g., number of system prompts, conversations)
 - Footer row: X (Twitter), GitHub links (open via `openUrl`)
@@ -1041,7 +1055,7 @@ Appears on hover over code blocks. Clicking copies the code content to clipboard
 **How it works:**
 - **DashboardLayout**: Renders `<Sidebar>` (256px) + main content area with `<Outlet>`. Includes a `data-tauri-drag-region` at the top for window dragging. Wrapped in `<ErrorBoundary>`.
 - **PageLayout**: Header (title + description + optional right slot + optional back button) + `<ScrollArea>` for scrollable content. Includes `<Promote>` card for non-licensed users.
-- **ErrorLayout**: Two variants — compact (overlay, shows reload + drag button) and full-page (centered error with Pluely branding + reload button).
+- **ErrorLayout**: Two variants — compact (overlay, shows reload + drag button) and full-page (centered error with Torvi branding + reload button).
 
 ---
 
@@ -1140,8 +1154,8 @@ Shows a centered illustration (variable icon), title, and description text when 
 **Libraries:** React, localStorage
 
 **How it works:**
-- **Promote Card**: Shown for non-licensed users on dashboard pages. Message: "Share Pluely on social, hit 5K impressions, get $5–$10 coupon." Dismissible (stored in localStorage with `promoteDismissed` key).
-- **Contribute Card**: Shown in Dev Space. Message: "Fix a critical issue, earn lifetime Dev Pro license ($120 value)." Links to `pluely.com/contribute`.
+- **Promote Card**: Shown for non-licensed users on dashboard pages. Message: "Share Torvi on social, hit 5K impressions, get $5–$10 coupon." Dismissible (stored in localStorage with `promoteDismissed` key).
+- **Contribute Card**: Shown in Dev Space. Message: "Fix a critical issue, earn lifetime Dev Pro license ($120 value)." Links to `torvi.com/contribute`.
 
 ---
 
@@ -1160,7 +1174,7 @@ Shows a centered illustration (variable icon), title, and description text when 
 **How it works:**  
 Uses `useMicVAD` hook with `userSpeakingThreshold: 0.6`. Auto-starts listening when enabled. When speech ends:
 1. Converts Float32Array audio to WAV blob via `floatArrayToWav(audio, 16000, 'wav')`
-2. Sends to selected STT provider (Pluely API or custom)
+2. Sends to selected STT provider (Torvi API or custom)
 3. On successful transcription, auto-submits text to AI completion
 
 Visual states: transcribing (spinning green loader), user speaking (spinning loader), listening (pulsing mic-off icon), idle (mic icon). Respects user's selected input device.
@@ -1361,7 +1375,7 @@ After requesting microphone permission, enumerates all `audioinput` and `audioou
 - **Activation**: User enters license key → `activate_license_api` → POST to payment endpoint with `{ license_key, instance_name (UUID v4), machine_id }` → stores key + instance ID in secure storage
 - **Validation**: `validate_license_api` → POST with stored credentials → returns `{ is_active, last_validated_at }`
 - **Deactivation**: `deactivate_license_api` → POST → removes from secure storage
-- **Checkout**: `get_checkout_url` → POST to Pluely server → returns payment URL → opens in browser
+- **Checkout**: `get_checkout_url` → POST to Torvi server → returns payment URL → opens in browser
 - **Masking**: `mask_license_key_cmd()` shows first 4 + `***` + last 4 chars
 
 ---
@@ -1398,7 +1412,7 @@ Non-licensed users see `<GetLicense>` button with explanatory text. `<Promote>` 
 **Libraries:** `serde_json`, `std::fs`
 
 **How it works:**  
-License keys and instance IDs are stored in `{app_data_dir}/secure_storage.json` (NOT in localStorage). Schema: `SecureStorage { license_key, instance_id, selected_pluely_model }` — all `Option<String>`. Strict key allowlist: only `pluely_license_key`, `pluely_instance_id`, `selected_pluely_model` are accepted; unknown keys are rejected. Batch operations: `save(items: Vec<StorageItem>)`, `get()`, `remove(keys: Vec<String>)`.
+License keys and instance IDs are stored in `{app_data_dir}/secure_storage.json` (NOT in localStorage). Schema: `SecureStorage { license_key, instance_id, selected_torvi_model }` — all `Option<String>`. Strict key allowlist: only `torvi_license_key`, `torvi_instance_id`, `selected_torvi_model` are accepted; unknown keys are rejected. Batch operations: `save(items: Vec<StorageItem>)`, `get()`, `remove(keys: Vec<String>)`.
 
 ---
 
@@ -1480,7 +1494,7 @@ All AI-generated markdown content passes through `rehype-sanitize` before render
 **Libraries:** `tauri-plugin-updater`
 
 **How it works:**  
-The updater checks `pluely.com/api/update/{target}/{arch}/{version}` for new versions. Downloaded update artifacts are verified against an Ed25519 public key embedded in `tauri.conf.json`. This ensures updates haven't been tampered with during transit. Windows uses passive (silent) install mode.
+The updater checks `torvi.com/api/update/{target}/{arch}/{version}` for new versions. Downloaded update artifacts are verified against an Ed25519 public key embedded in `tauri.conf.json`. This ensures updates haven't been tampered with during transit. Windows uses passive (silent) install mode.
 
 ---
 
@@ -1502,4 +1516,4 @@ Each conversation in the chat list has a "Download" action that:
 
 ---
 
-*This feature reference was generated from a complete analysis of every source file in the pluely-master codebase.*
+*This feature reference was generated from a complete analysis of every source file in the torvi-master codebase.*

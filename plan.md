@@ -1,7 +1,29 @@
-# Clean-Room Implementation Plan
+# Clean-Room Implementation Plan — Torvi (Updated April 2026)
 
-> A complete blueprint for rebuilding the AI desktop overlay assistant from scratch.  
+> A complete blueprint for the AI desktop overlay assistant.
 > No code is copied — only architectural decisions, module contracts, and implementation guidance.
+
+## Implementation Status (v0.3)
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1: Project Setup | ✅ Complete | Tauri 2 + React 19 + TypeScript 5.8 + Vite + Tailwind v4 |
+| Phase 2: Overlay Window | ✅ Complete | Pill bar, dynamic height, glassmorphism, WS_EX_TOOLWINDOW |
+| Phase 3: AI Chat | ✅ Complete | Streaming SSE, OpenRouter + NVIDIA NIM, model selection, system prompts |
+| Phase 4: Audio Pipeline | ✅ Complete | WASAPI capture, Rust VAD, AssemblyAI streaming STT, mic input |
+| Phase 5: Dashboard | ✅ Complete | 13 routes, chat history, settings, billing, shortcuts, responses |
+| Phase 6: Auth & Sync | 🟡 Partial | Gate window, dual auth, Appwrite modules written, DB not provisioned |
+| Phase 7: Interview Mode | 📋 Planned | Speaker diarization + question detection (see Concept.md) |
+
+### Completed Since Plan Was Written
+- **Torvi rebrand** (Torvi → Torvi)
+- **Gate auth window**: Hidden-by-default, React-controlled visibility, Appwrite + legacy auth
+- **AI model selection**: 30+ models across OpenRouter + NVIDIA NIM with category filters
+- **Billing page**: 3-tier pricing with GST, adjustable add-ons
+- **Usage enforcement**: Plan-based limits on AI responses and listening time
+- **Screenshot**: Manual-only (auto-capture removed)
+- **System prompt**: Rich structured default prompt
+- **Appwrite sync modules**: 7 files for cloud sync (blocked by DB provisioning)
 
 ---
 
@@ -237,7 +259,7 @@ project-root/
 │   │   │   ├── ai-response.function.ts  # Streaming engine (dual path)
 │   │   │   ├── stt.function.ts    # Speech-to-text request
 │   │   │   ├── common.function.ts # Template processing, variable replacement
-│   │   │   └── pluely.api.ts      # Premium API routing decision
+│   │   │   └── torvi.api.ts      # Premium API routing decision
 │   │   └── storage/
 │   │       ├── helper.ts          # Safe localStorage get/set
 │   │       ├── ai-providers.ts    # Custom AI provider storage
@@ -392,7 +414,7 @@ project-root/
 |------------|-------------|
 | M6.1 Neural VAD | @ricky0123/vad-react with Silero ONNX model for speech detection |
 | M6.2 Audio Encoding | Float32Array → WAV blob conversion |
-| M6.3 STT Request | Route to Pluely API or custom cURL STT provider |
+| M6.3 STT Request | Route to Torvi API or custom cURL STT provider |
 | M6.4 UI States | Visual indicators for listening/speaking/transcribing/idle |
 | M6.5 Device Selection | Enumerate audio input devices, persist selection |
 
@@ -716,7 +738,7 @@ Phase 6 Deliverables
 ```
 
 **Modules touched:** M3 (Rust path), M11, M12, M14  
-**Milestone test:** License activation/deactivation works. Premium features are gated. Auto-update checks and installs. Pluely API streaming works end-to-end.
+**Milestone test:** License activation/deactivation works. Premium features are gated. Auto-update checks and installs. Torvi API streaming works end-to-end.
 
 ---
 

@@ -1,0 +1,33 @@
+# cargo audit configuration — acknowledged transitive advisories
+# Run `cargo audit` from the src-tauri/ directory.
+#
+# All entries below are inside Tauri's own dependency tree and cannot be fixed
+# by this codebase. Each is tracked and will be re-evaluated when Tauri releases
+# updated versions.
+
+[advisories]
+# RUSTSEC-2023-0071: rsa Marvin Attack — stale lockfile entry; rsa is NOT compiled
+# (cargo tree -i rsa → nothing). Set default-features=false on tauri-plugin-sql
+# which removes sqlx-mysql → num-bigint-dig → rsa. Will be pruned on next cargo check.
+#
+# RUSTSEC-2026-0097: rand unsound with custom logger — only triggered if a custom
+# log impl calls rand::rng() during a log call. We don't do that. Transitive dep
+# of Tauri/sqlx/tungstenite. No fix available until upstream updates rand.
+#
+# RUSTSEC-2024-0429: glib VariantStrIter unsoundness — Linux/GTK only crate.
+# On Windows (our target) glib is never compiled. cfg(target_os="linux") excludes it.
+#
+# RUSTSEC-2025-0080/0098/0100: unic-* crates unmaintained — informational only,
+# no CVE. Inside tauri-utils via urlpattern. Resolved when Tauri updates urlpattern.
+#
+# RUSTSEC-2026-0105: core2 0.4.0 unmaintained/yanked — functional, inside Tauri
+# internals. No security impact. Resolved when Tauri removes this dep.
+ignore = [
+    "RUSTSEC-2023-0071",
+    "RUSTSEC-2026-0097",
+    "RUSTSEC-2024-0429",
+    "RUSTSEC-2025-0080",
+    "RUSTSEC-2025-0098",
+    "RUSTSEC-2025-0100",
+    "RUSTSEC-2026-0105",
+]

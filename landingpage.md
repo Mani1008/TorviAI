@@ -1,12 +1,12 @@
-# Pluely — Landing Page & Auth Integration Reference
+# Torvi — Landing Page & Auth Integration Reference
 
-> **Purpose of this document:** This file lives in the desktop app repo and serves as a complete reference for building the Pluely landing page + auth backend in a separate repository. When starting work on the landing page, read this first.
+> **Purpose of this document:** This file lives in the desktop app repo and serves as a complete reference for building the Torvi landing page + auth backend in a separate repository. When starting work on the landing page, read this first.
 
 ---
 
-## 1. What is Pluely?
+## 1. What is Torvi?
 
-Pluely is a **privacy-first, lightweight (~10MB) AI assistant desktop application** — an open-source alternative to Cluely. It's an **invisible AI overlay** that sits at the top of the screen as a slim pill-shaped bar, designed to help users during meetings, interviews, and conversations without being visible to screen recording or screen-sharing software.
+Torvi is a **privacy-first, lightweight (~10MB) AI assistant desktop application** — an open-source alternative to Cluely. It's an **invisible AI overlay** that sits at the top of the screen as a slim pill-shaped bar, designed to help users during meetings, interviews, and conversations without being visible to screen recording or screen-sharing software.
 
 **Target users:** Professionals in meetings, job seekers in interviews, students, and anyone who needs real-time AI assistance discreetly.
 
@@ -18,11 +18,11 @@ Pluely is a **privacy-first, lightweight (~10MB) AI assistant desktop applicatio
 
 ---
 
-## 2. How Pluely Works on Desktop
+## 2. How Torvi Works on Desktop
 
 ### Dual-Window Architecture
 
-Pluely runs **two independent windows** from a single process:
+Torvi runs **two independent windows** from a single process:
 
 1. **Pill Bar (Overlay)** — A 600×54px transparent, frameless, always-on-top bar at the top-center of the screen. No title bar, no resize handles, no taskbar entry. Invisible to screen recording. This is the main AI interface.
 
@@ -44,9 +44,9 @@ When the user sends a message, the pill bar smoothly expands from 54px → ~600p
 
 ### Six-Layer Stealth System
 
-What makes Pluely special — it's invisible to screen capture:
+What makes Torvi special — it's invisible to screen capture:
 1. **Content Protection** — OS-level flag excludes the window from screen recordings
-2. **NSPanel (macOS)** — Non-activating floating panel (clicking Pluely doesn't steal focus from Zoom/Meet)
+2. **NSPanel (macOS)** — Non-activating floating panel (clicking Torvi doesn't steal focus from Zoom/Meet)
 3. **Float Level** — Always on top, visible on all virtual desktops
 4. **Taskbar/Dock Hidden** — No taskbar entry, no dock icon
 5. **Title Attribute Stripping** — Prevents tooltip text leaking during screen share
@@ -115,7 +115,7 @@ The desktop app gates the pill bar behind authentication. Users must sign in bef
 ```
 ┌─────────────────┐
 │   User opens     │
-│   Pluely app     │
+│   Torvi app     │
 └────────┬────────┘
          ▼
 ┌─────────────────┐    Token exists?     ┌─────────────────┐
@@ -174,7 +174,7 @@ The desktop app gates the pill bar behind authentication. Users must sign in bef
 │  Frontend saves  │
 │  token to        │
 │  localStorage    │
-│  key: pluely_    │
+│  key: torvi_    │
 │  auth_token      │
 └────────┬────────┘
          ▼
@@ -195,7 +195,7 @@ The desktop app gates the pill bar behind authentication. Users must sign in bef
 ### Subsequent Launches
 On every app launch:
 1. Gate window opens showing "Checking your session..."
-2. Checks localStorage for `pluely_auth_token`
+2. Checks localStorage for `torvi_auth_token`
 3. If token exists → calls `GET /api/auth/verify` with `Authorization: Bearer {token}`
 4. If valid → gate auto-closes, pill bar appears immediately
 5. If invalid/expired → gate shows "Get Started" button for re-authentication
@@ -207,7 +207,7 @@ On every app launch:
 ### Required Pages
 | Route | Purpose |
 |-------|---------|
-| `/` | Marketing homepage — what is Pluely, features, pricing, download link |
+| `/` | Marketing homepage — what is Torvi, features, pricing, download link |
 | `/login` | Sign-in page (Google OAuth recommended, email/password optional) |
 | `/signup` | Registration page (or combined with login) |
 | `/dashboard` | User account management — billing, usage stats, plan details |
@@ -264,7 +264,7 @@ The `plan` field is important — the desktop app uses it to gate premium featur
 
 ### Token Requirements
 - **Format:** JWT or opaque session token — the desktop app doesn't decode it, just stores and sends it
-- **Storage key:** `pluely_auth_token` in the webview's localStorage
+- **Storage key:** `torvi_auth_token` in the webview's localStorage
 - **Lifetime:** Recommended 30 days minimum (users shouldn't need to re-auth frequently)
 - **The token should survive page/window reloads** — it's stored in localStorage, not cookies
 
@@ -277,7 +277,7 @@ The `plan` field is important — the desktop app uses it to gate premium featur
 App starts
   └─▶ Main pill bar window created (HIDDEN — invisible)
   └─▶ Gate window opens (480×600px, visible, with window decorations)
-        └─▶ Shows "Welcome to Pluely" + sparkle icon
+        └─▶ Shows "Welcome to Torvi" + sparkle icon
         └─▶ "Get Started — Sign In" button
         └─▶ User cannot access any AI features
         └─▶ Pill bar remains hidden until auth completes
@@ -334,8 +334,8 @@ App starts
 ### Environment Variables (Desktop App `.env`)
 ```env
 # Points to your landing page
-VITE_APP_URL=https://pluely.com
-VITE_API_BASE_URL=https://pluely.com/api
+VITE_APP_URL=https://torvi.com
+VITE_API_BASE_URL=https://torvi.com/api
 
 # Development bypass (skip token verification — returns fake dev user)
 VITE_SKIP_AUTH_CHECK=true
@@ -343,7 +343,7 @@ VITE_SKIP_AUTH_CHECK=true
 
 ### Token Storage
 ```
-Key:   pluely_auth_token
+Key:   torvi_auth_token
 Store: localStorage (webview)
 Value: raw token string (JWT or opaque)
 ```
@@ -368,7 +368,7 @@ The `plan` field from `/api/auth/verify` response controls which features are av
 | Keep Engaged mode | ❌ | ✅ |
 | Keyboard window movement | ❌ | ✅ |
 | Custom context templates | ❌ | ✅ |
-| Pluely API (hosted AI proxy) | ❌ | ✅ |
+| Torvi API (hosted AI proxy) | ❌ | ✅ |
 | Auto-scroll streaming | ❌ | ✅ |
 
 The landing page's `/pricing` page should reflect these tiers. License keys are activated with machine ID → server validation → hardware-bound.
@@ -393,7 +393,7 @@ This is a suggestion — use whatever you prefer:
 ### Sign-In
 ```
 Browser opens: {VITE_APP_URL}/login?callback_port={PORT}
-Example:       https://pluely.com/login?callback_port=49521
+Example:       https://torvi.com/login?callback_port=49521
 ```
 
 ### After Auth (Landing Page Redirects To)
@@ -406,13 +406,13 @@ Example: http://127.0.0.1:49521/callback?token=eyJhbGciOiJIUzI1NiIs...
 ```
 GET {VITE_API_BASE_URL}/auth/verify
 Authorization: Bearer {token}
-Example: GET https://pluely.com/api/auth/verify
+Example: GET https://torvi.com/api/auth/verify
 ```
 
 ### Account Management (From Settings)
 ```
 Browser opens: {VITE_APP_URL}/dashboard
-Example:       https://pluely.com/dashboard
+Example:       https://torvi.com/dashboard
 ```
 
 ---
@@ -435,7 +435,7 @@ The gate auto-closes and the pill bar appears without any real backend.
 
 | Repo | Path / URL |
 |------|-----------|
-| Desktop App | `d:\MRR Projects\pluely-with Rust\ai-assistant` |
+| Desktop App | `d:\MRR Projects\torvi-with Rust\ai-assistant` |
 | Landing Page | *(separate repo — to be created)* |
 
 The desktop app's identifier is `com.ai-assistant.app`. Dev server runs on `http://localhost:1420`.

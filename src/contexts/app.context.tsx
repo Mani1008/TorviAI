@@ -10,9 +10,12 @@ import type { ScreenshotConfig, CustomizableState } from "@/types/settings";
 import {
   STORAGE_KEYS,
   DEFAULT_SYSTEM_PROMPT,
+  LEGACY_DEFAULT_SYSTEM_PROMPT,
   DEFAULT_SCREENSHOT_CONFIG,
   DEFAULT_CUSTOMIZABLE,
 } from "@/config/constants";
+import { pushSettings } from "@/lib/appwrite";
+import { loadUserProfile } from "@/lib/storage/auth";
 
 const AppContext = createContext<IContextType | undefined>(undefined);
 
@@ -33,11 +36,20 @@ function saveToStorage(key: string, value: unknown) {
   }
 }
 
+function loadSystemPromptFromStorage(): string {
+  const storedPrompt = loadFromStorage(STORAGE_KEYS.SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT);
+
+  if (storedPrompt === LEGACY_DEFAULT_SYSTEM_PROMPT) {
+    saveToStorage(STORAGE_KEYS.SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT);
+    return DEFAULT_SYSTEM_PROMPT;
+  }
+
+  return storedPrompt;
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   // --- System Prompt ---
-  const [systemPrompt, setSystemPrompt] = useState(
-    loadFromStorage(STORAGE_KEYS.SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT)
-  );
+  const [systemPrompt, setSystemPrompt] = useState(() => loadSystemPromptFromStorage());
 
   // --- Screenshot Config ---
   const [screenshotConfiguration, setScreenshotConfiguration] = useState<ScreenshotConfig>(
@@ -59,6 +71,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateSystemPrompt = useCallback((prompt: string) => {
     setSystemPrompt(prompt);
     saveToStorage(STORAGE_KEYS.SYSTEM_PROMPT, prompt);
+    // Sync to Appwrite
+    const profile = loadUserProfile();
+    if (profile?.id) {
+      pushSettings(profile.id).catch(console.warn);
+    }
   }, []);
 
   const updateScreenshotConfiguration = useCallback(

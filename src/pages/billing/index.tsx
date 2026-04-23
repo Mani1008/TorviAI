@@ -90,7 +90,7 @@ export default function Billing() {
 
   return (
     <PageLayout title="Billing" description="Choose a plan that fits your needs">
-      <div className="grid gap-6 lg:grid-cols-3 max-w-5xl">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 max-w-4xl">
 
         {/* ── Starter ── */}
         <div
@@ -162,7 +162,7 @@ export default function Billing() {
               <button
                 onClick={() => setExtraListeningHours(Math.max(0, extraListeningHours - 1))}
                 disabled={extraListeningHours === 0}
-                className="rounded-md border border-border p-1.5 disabled:opacity-30 hover:bg-muted transition"
+                className="rounded-md border border-border p-1.5 hover:bg-indigo-500 transition"
               >
                 <Minus className="h-3 w-3" />
               </button>
@@ -174,7 +174,7 @@ export default function Billing() {
               </div>
               <button
                 onClick={() => setExtraListeningHours(extraListeningHours + 1)}
-                className="rounded-md border border-border p-1.5 hover:bg-muted transition"
+                className="rounded-md border border-border p-1.5 hover:bg-indigo-500 transition"
               >
                 <Plus className="h-3 w-3" />
               </button>
@@ -194,7 +194,7 @@ export default function Billing() {
               <button
                 onClick={() => setExtraResponseBlocks(Math.max(0, extraResponseBlocks - 1))}
                 disabled={extraResponseBlocks === 0}
-                className="rounded-md border border-border p-1.5 disabled:opacity-30 hover:bg-muted transition"
+                className="rounded-md border border-border p-1.5 hover:bg-indigo-500 transition"
               >
                 <Minus className="h-3 w-3" />
               </button>
@@ -206,7 +206,7 @@ export default function Billing() {
               </div>
               <button
                 onClick={() => setExtraResponseBlocks(extraResponseBlocks + 1)}
-                className="rounded-md border border-border p-1.5 hover:bg-muted transition"
+                className="rounded-md border border-border p-1.5 hover:bg-indigo-500 transition"
               >
                 <Plus className="h-3 w-3" />
               </button>

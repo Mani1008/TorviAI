@@ -20,7 +20,7 @@ export interface UserProfile {
   email: string;
   name: string;
   avatarUrl?: string;
-  plan: "starter" | "plus" | "pro";
+  plan: "starter" | "plus" | "pro" | "dev";
 }
 
 /**

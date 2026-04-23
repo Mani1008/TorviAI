@@ -38,7 +38,7 @@ pub async fn start_audio_capture(app: AppHandle) -> Result<(), String> {
     // Spawn audio capture on a separate thread (cpal requires it)
     std::thread::spawn(move || {
         if let Err(e) = run_audio_capture(&app_handle) {
-            eprintln!("[AudioCapture] Error: {}", e);
+            log::error!("[AudioCapture] Error: {}", e);
             let _ = app_handle.emit("audio-capture-error", e.to_string());
         }
         let state = app_handle.state::<AudioCaptureState>();
@@ -73,7 +73,7 @@ fn run_audio_capture(app: &AppHandle) -> Result<(), String> {
         .default_output_device()
         .ok_or_else(|| "No output audio device found".to_string())?;
 
-    println!(
+    log::debug!(
         "[AudioCapture] Using device: {}",
         device.name().unwrap_or_default()
     );
@@ -85,7 +85,7 @@ fn run_audio_capture(app: &AppHandle) -> Result<(), String> {
     let sample_rate = config.sample_rate().0;
     let channels = config.channels() as usize;
 
-    println!(
+    log::debug!(
         "[AudioCapture] Source: {}Hz, {} channels, {:?}",
         sample_rate,
         channels,
@@ -165,12 +165,12 @@ fn run_audio_capture(app: &AppHandle) -> Result<(), String> {
                             let b64 = BASE64.encode(&bytes);
                             let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
                             if count <= 5 || count % 100 == 0 {
-                                println!("[AudioCapture] Emitted chunk #{}, b64 size: {}", count, b64.len());
+                                log::debug!("[AudioCapture] Emitted chunk #{}, b64 size: {}", count, b64.len());
                             }
                             let _ = app_handle.emit("audio-chunk", b64);
                         }
                     },
-                    |err| eprintln!("[AudioCapture] Stream error: {}", err),
+                    |err| log::error!("[AudioCapture] Stream error: {}", err),
                     None,
                 )
                 .map_err(|e| format!("Failed to build input stream: {}", e))?
@@ -230,12 +230,12 @@ fn run_audio_capture(app: &AppHandle) -> Result<(), String> {
                             let b64 = BASE64.encode(&bytes);
                             let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
                             if count <= 5 || count % 100 == 0 {
-                                println!("[AudioCapture] Emitted chunk #{}, b64 size: {}", count, b64.len());
+                                log::debug!("[AudioCapture] Emitted chunk #{}, b64 size: {}", count, b64.len());
                             }
                             let _ = app_handle.emit("audio-chunk", b64);
                         }
                     },
-                    |err| eprintln!("[AudioCapture] Stream error: {}", err),
+                    |err| log::error!("[AudioCapture] Stream error: {}", err),
                     None,
                 )
                 .map_err(|e| format!("Failed to build input stream: {}", e))?
@@ -247,7 +247,7 @@ fn run_audio_capture(app: &AppHandle) -> Result<(), String> {
         .play()
         .map_err(|e| format!("Failed to start audio stream: {}", e))?;
 
-    println!("[AudioCapture] Loopback capture started");
+    log::info!("[AudioCapture] Loopback capture started");
 
     // Keep thread alive until stop signal
     while !state.stop_signal.load(Ordering::SeqCst) {
@@ -255,6 +255,6 @@ fn run_audio_capture(app: &AppHandle) -> Result<(), String> {
     }
 
     drop(stream);
-    println!("[AudioCapture] Loopback capture stopped");
+    log::info!("[AudioCapture] Loopback capture stopped");
     Ok(())
 }

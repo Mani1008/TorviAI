@@ -1,4 +1,4 @@
-# Pluely Web Dashboard — Structure & Specification
+# Torvi Web Dashboard — Structure & Specification
 
 > Reference document for rebuilding the desktop dashboard as a web app.
 > Includes current desktop structure, data models, and competitor analysis (InterviewHelpAI).
@@ -121,7 +121,7 @@ The sidebar persists across all dashboard routes.
 
 #### Web additions needed
 - **API key management** — input field for NVIDIA/BYOK keys (stored server-side, not in `.env`)
-- **Provider mode toggle** — "Managed (Pluely)" vs "Bring Your Own Key (BYOK)"
+- **Provider mode toggle** — "Managed (Torvi)" vs "Bring Your Own Key (BYOK)"
 
 ---
 
@@ -260,7 +260,7 @@ interface Resume {
 
 **Purpose:** Plan selection, credits, payment management.
 
-#### Pricing Tiers (reference from InterviewHelpAI, adapt for Pluely)
+#### Pricing Tiers (reference from InterviewHelpAI, adapt for Torvi)
 
 | Plan    | Price          | Listening       | AI Responses     | Daily Limit      | Extras                    |
 |---------|----------------|-----------------|------------------|------------------|---------------------------|
@@ -501,7 +501,7 @@ Desktop uses SQLite + localStorage. The web dashboard needs REST (or tRPC) endpo
 
 Features observed from the provided screenshots:
 
-| Feature                       | InterviewHelpAI | Pluely Desktop | Pluely Web (Planned) |
+| Feature                       | InterviewHelpAI | Torvi Desktop | Torvi Web (Planned) |
 |-------------------------------|:-:|:-:|:-:|
 | Welcome banner with name      | ✅ | ❌ | ✅ |
 | Download desktop app CTA      | ✅ | N/A | ✅ |
@@ -538,7 +538,7 @@ Based on desktop + competitor analysis, the web sidebar should be:
 
 ```
 ┌─────────────────────────┐
-│  🔵 Pluely              │  ← Logo
+│  🔵 Torvi              │  ← Logo
 ├─────────────────────────┤
 │  🏠 Home                │  ← Welcome + Download + Guide
 │  📋 All Commands        │  ← Command reference

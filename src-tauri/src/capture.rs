@@ -19,17 +19,16 @@ pub async fn start_screen_capture(_app: AppHandle) -> Result<String, String> {
 
 /// Convert a captured screenshot to base64.
 ///
-/// TODO: Encode captured image to base64 PNG.
+/// TODO: Implement full monitor-index-based capture.
 #[tauri::command]
 pub async fn capture_to_base64(monitor_index: usize) -> Result<String, String> {
-    println!("[Capture] capture_to_base64: monitor={}", monitor_index);
-    Ok("data:image/png;base64,placeholder".to_string())
+    let _ = monitor_index;
+    Err("capture_to_base64 is not yet implemented".to_string())
 }
 
 /// Crop a selected area from a captured monitor.
 ///
-/// TODO: Use image crate for cropping.
-/// TODO: Handle DPI scale factor.
+/// TODO: Use image crate for cropping with DPI scale factor support.
 #[tauri::command]
 pub async fn capture_selected_area(
     monitor_index: usize,
@@ -38,11 +37,8 @@ pub async fn capture_selected_area(
     width: u32,
     height: u32,
 ) -> Result<String, String> {
-    println!(
-        "[Capture] capture_selected_area: monitor={}, region=({},{},{},{})",
-        monitor_index, x, y, width, height
-    );
-    Ok("data:image/png;base64,placeholder".to_string())
+    let _ = (monitor_index, x, y, width, height);
+    Err("capture_selected_area is not yet implemented".to_string())
 }
 
 /// Close an overlay window after screenshot selection.

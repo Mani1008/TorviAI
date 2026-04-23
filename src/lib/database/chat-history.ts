@@ -1,5 +1,7 @@
 import Database from "@tauri-apps/plugin-sql";
 import type { ChatConversation, ChatMessage } from "@/types/completion";
+import { deleteRemoteConversation, deleteAllRemoteConversations } from "@/lib/appwrite";
+import { loadUserProfile } from "@/lib/storage/auth";
 
 let db: Database | null = null;
 
@@ -116,12 +118,17 @@ export async function deleteConversation(id: string): Promise<void> {
   const conn = await getDb();
   await conn.execute("DELETE FROM messages WHERE conversation_id = $1", [id]);
   await conn.execute("DELETE FROM conversations WHERE id = $1", [id]);
+  deleteRemoteConversation(id).catch(console.warn);
 }
 
 export async function deleteAllConversations(): Promise<void> {
   const conn = await getDb();
   await conn.execute("DELETE FROM messages");
   await conn.execute("DELETE FROM conversations");
+  const profile = loadUserProfile();
+  if (profile?.id) {
+    deleteAllRemoteConversations(profile.id).catch(console.warn);
+  }
 }
 
 export async function addMessage(

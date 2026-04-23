@@ -1,4 +1,4 @@
-# Pluely — Comprehensive Auth & App Architecture Plan
+# Torvi — Comprehensive Auth & App Architecture Plan
 
 > This document details how authentication works across the desktop app and landing page, modeled after analysis of Cluely, FinalRoundAI, and similar desktop AI assistants.
 
@@ -36,7 +36,7 @@
 
 ### Common Patterns Across Competitors
 
-| Pattern | Cluely | FinalRoundAI | Pluely (Our Approach) |
+| Pattern | Cluely | FinalRoundAI | Torvi (Our Approach) |
 |---------|--------|--------------|----------------------|
 | Account creation | Website | Website | Website (landing page) |
 | Desktop login | Embedded in app | Embedded in app | Browser redirect (safer) |
@@ -89,7 +89,7 @@ FIRST LAUNCH:
    └─ React: main.tsx loads → router matches /gate
 
 2. Gate component mounts
-   ├─ useEffect: checks localStorage for "pluely_auth_token"
+   ├─ useEffect: checks localStorage for "torvi_auth_token"
    ├─ Token found?  → calls GET /api/auth/verify
    │   ├─ Valid   → invoke("unlock_app") → pill bar shows, gate hides
    │   └─ Invalid → show "Get Started" button
@@ -114,7 +114,7 @@ FIRST LAUNCH:
    └─ Browser: shows "You can close this tab" message
 
 6. Gate component receives the event
-   ├─ saveAuthToken(token) → localStorage.setItem("pluely_auth_token", token)
+   ├─ saveAuthToken(token) → localStorage.setItem("torvi_auth_token", token)
    ├─ verifyToken() → GET /api/auth/verify → { valid, user: { plan } }
    ├─ invoke("unlock_app")
    │   ├─ Rust: shows main window (pill bar)
@@ -193,9 +193,9 @@ TOKEN REFRESH (future):
 ### Token Lifecycle
 
 ```
-saveAuthToken(token)   → localStorage.setItem("pluely_auth_token", token)
-getAuthToken()         → localStorage.getItem("pluely_auth_token")
-clearAuthToken()       → localStorage.removeItem("pluely_auth_token")
+saveAuthToken(token)   → localStorage.setItem("torvi_auth_token", token)
+getAuthToken()         → localStorage.getItem("torvi_auth_token")
+clearAuthToken()       → localStorage.removeItem("torvi_auth_token")
 verifyToken()          → fetch GET /api/auth/verify with Bearer header
                          → returns { id, name, email, plan } or null
 ```
@@ -325,7 +325,7 @@ app.get("/api/auth/google/callback", async (req, res) => {
 | Dashboard chat history | ❌ | ✅ | ✅ |
 | Transparency/theme slider | ❌ | ✅ | ✅ |
 | Window dragging | ❌ | ✅ | ✅ |
-| Pluely hosted AI API | ❌ | ❌ | ✅ |
+| Torvi hosted AI API | ❌ | ❌ | ✅ |
 | Content protection (stealth) | ❌ | ❌ | ✅ |
 | Auto-scroll streaming | ❌ | ❌ | ✅ |
 
@@ -344,7 +344,7 @@ if (user.plan === "free") {
 }
 ```
 
-The plan is checked client-side for UI gating, but server-side for actual API access (e.g., message limits enforced on the Pluely API backend).
+The plan is checked client-side for UI gating, but server-side for actual API access (e.g., message limits enforced on the Torvi API backend).
 
 ---
 
@@ -430,8 +430,8 @@ GROQ_API_KEY=your_key
 ASSEMBLYAI_API_KEY=your_key
 
 # Frontend (VITE_ prefix = exposed to React)
-VITE_APP_URL=https://pluely.com           # Landing page URL
-VITE_API_BASE_URL=https://pluely.com/api  # API base URL
+VITE_APP_URL=https://torvi.com           # Landing page URL
+VITE_API_BASE_URL=https://torvi.com/api  # API base URL
 VITE_SKIP_AUTH_CHECK=false                 # true = dev bypass
 ```
 
@@ -450,7 +450,7 @@ STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 
 # App
-NEXT_PUBLIC_APP_URL=https://pluely.com
+NEXT_PUBLIC_APP_URL=https://torvi.com
 ```
 
 ---
@@ -458,7 +458,7 @@ NEXT_PUBLIC_APP_URL=https://pluely.com
 ## 10. Testing Checklist
 
 ### Desktop App (with VITE_SKIP_AUTH_CHECK=true)
-- [ ] Gate window appears on launch (dark BG, "Welcome to Pluely" text)
+- [ ] Gate window appears on launch (dark BG, "Welcome to Torvi" text)
 - [ ] Token auto-verified → pill bar appears within 1 second
 - [ ] Gate window hides after unlock
 - [ ] Pill bar is functional (can type, send messages)
