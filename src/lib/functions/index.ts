@@ -1,5 +1,4 @@
-export { fetchAIResponse } from "./ai-response.function";
-export { fetchSTT } from "./stt.function";
+export { streamAIFromConfig } from "./ai-response.function";
 export {
   extractVariables,
   processUserMessageTemplate,

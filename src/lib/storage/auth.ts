@@ -35,10 +35,17 @@ export function clearAuthToken(): void {
   safeLocalStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
 }
 
-const ALLOWED_PLANS = new Set(["starter", "plus", "pro", "dev"]);
+const ALLOWED_PLANS = new Set(["starter", "free", "plus", "pro", "dev"]);
+
+/** Normalize Appwrite's "free" plan value to the app's canonical "starter". */
+function normalizePlan(plan: string): UserProfile["plan"] {
+  return plan === "free" ? "starter" : plan as UserProfile["plan"];
+}
 
 export function saveUserProfile(profile: UserProfile): void {
-  safeLocalStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(profile));
+  // Normalize before saving so "free" never ends up in localStorage
+  const normalized = { ...profile, plan: normalizePlan(profile.plan) };
+  safeLocalStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(normalized));
 }
 
 export function loadUserProfile(): UserProfile | null {
@@ -75,9 +82,12 @@ export function clearUserProfile(): void {
  * Returns the user profile if valid, null otherwise.
  */
 export async function verifyToken(token: string, apiBase: string): Promise<UserProfile | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
   try {
     const res = await fetch(`${apiBase}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -90,5 +100,7 @@ export async function verifyToken(token: string, apiBase: string): Promise<UserP
     };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }

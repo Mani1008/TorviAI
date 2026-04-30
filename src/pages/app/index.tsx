@@ -12,6 +12,7 @@ import { ToastContainer } from "@/components/Toast";
 import { getModelById } from "@/config/models.constants";
 import { loadSelectedModel } from "@/lib/storage/ai-providers";
 import { addListeningSeconds } from "@/lib/storage/usage-stats";
+import { loadUserProfile } from "@/lib/storage/auth";
 
 // The pill bar is the only transparent window — override the global dark background
 function useTransparentWindow() {
@@ -86,6 +87,15 @@ export default function App() {
   const { transparency, setTransparency } = useTheme();
   const toast = useToast();
   const glassAlpha = transparency / 100;
+
+  // Auth gate — hide the pill bar if no valid session exists.
+  // This covers the case where the window was left visible from a previous session
+  // or the user pressed Ctrl+Shift+H while the gate is open.
+  useEffect(() => {
+    if (!loadUserProfile()) {
+      getCurrentWindow().hide().catch(() => {});
+    }
+  }, []);
 
   // Build slides: each AI response paired with its preceding user message
   const slides = messages.reduce<{ user?: typeof messages[0]; assistant: typeof messages[0] }[]>(

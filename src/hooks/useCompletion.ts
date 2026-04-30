@@ -19,6 +19,12 @@ import { loadUserProfile } from "@/lib/storage/auth";
 const MAX_MESSAGE_LENGTH = 32_000;
 /** Maximum number of messages to include in the API context window. */
 const MAX_CONTEXT_MESSAGES = 50;
+/**
+ * Maximum total characters across all context messages (system prompt + history).
+ * Prevents context-window cost amplification: 50 × 32k = 1.6M chars worst case.
+ * 80k chars ≈ 20k tokens — sufficient for deep conversations at reasonable cost.
+ */
+const MAX_TOTAL_CONTEXT_CHARS = 80_000;
 
 export function useCompletion() {
   const { systemPrompt } = useAppContext();
@@ -69,12 +75,20 @@ export function useCompletion() {
         addMessage(conversationIdRef.current, userMessage).catch(console.error);
       }
 
-      // Build API messages — cap history to avoid unbounded token growth
+      // Build API messages — cap history to avoid unbounded token growth.
+      // Apply message count cap first, then trim oldest messages if total chars exceed budget.
       const recentMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
-      const apiMessages: Message[] = recentMessages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const apiMessages: Message[] = [];
+      let contextChars = systemPrompt.length;
+      // Walk newest-first so we always include the most recent messages
+      for (let i = recentMessages.length - 1; i >= 0; i--) {
+        const content = typeof recentMessages[i].content === "string"
+          ? (recentMessages[i].content as string)
+          : "";
+        if (contextChars + content.length > MAX_TOTAL_CONTEXT_CHARS) break;
+        contextChars += content.length;
+        apiMessages.unshift({ role: recentMessages[i].role, content: recentMessages[i].content });
+      }
       apiMessages.push({ role: "user", content: text });
 
       // Create assistant message placeholder

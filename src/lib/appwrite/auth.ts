@@ -80,10 +80,13 @@ export async function resolveUserProfile(
   awUser: AppwriteUser,
   plan?: string
 ): Promise<UserProfile> {
+  // Appwrite OAuth can return null/undefined for name and email (e.g. Google users
+  // who haven't set a display name). Coerce to string to pass the loadUserProfile
+  // validator which checks typeof === "string".
   const profile: UserProfile = {
     id: awUser.$id,
-    email: awUser.email,
-    name: awUser.name,
+    email: typeof awUser.email === "string" ? awUser.email : "",
+    name: typeof awUser.name === "string" ? awUser.name : "",
     plan: (plan as UserProfile["plan"]) || "starter",
   };
 

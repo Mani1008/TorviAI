@@ -3,9 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Sparkles, Loader2 } from "lucide-react";
-import { APP_URL } from "@/config/constants";
-import { saveAuthToken, verifyToken } from "@/lib/auth";
-import { saveUserProfile } from "@/lib/storage/auth";
+import { APP_URL, API_BASE_URL } from "@/config/constants";
+import { saveAuthToken, loadAuthToken, verifyToken, saveUserProfile } from "@/lib/storage/auth";
 
 // Lazy-import Appwrite modules to prevent gate crash if appwrite isn't configured
 type AppwriteModule = Awaited<typeof import("@/lib/appwrite")>;
@@ -22,6 +21,9 @@ interface CallbackPayload {
   provider: string;
   state: string;
 }
+
+// Module-level timestamp used to debounce OAuth initiations (2-second cooldown).
+let _lastOAuthClick = 0;
 
 async function unlockAndSync() {
   try {
@@ -41,8 +43,16 @@ export default function Gate() {
   // On mount: check for existing session (Appwrite first, then legacy)
   useEffect(() => {
     (async () => {
+      // Dev bypass — only active in DEV builds; never fires in production bundles.
+      if (import.meta.env.DEV && import.meta.env.VITE_SKIP_AUTH_CHECK === "true") {
+        saveUserProfile({ id: "dev", name: "Dev User", email: "dev@local", plan: "starter" });
+        setStatus("done");
+        await unlockAndSync();
+        return;
+      }
+
       try {
-        // Try Appwrite session first
+        // Try Appwrite session first — always re-fetches from server, never uses cached profile
         const aw = await getAppwrite();
         if (aw.isAppwriteConfigured()) {
           const awUser = await aw.getActiveSession();
@@ -60,14 +70,10 @@ export default function Gate() {
 
       try {
         // Fall back to legacy JWT verification
-        const user = await verifyToken();
+        const token = loadAuthToken();
+        const user = token ? await verifyToken(token, API_BASE_URL) : null;
         if (user) {
-          saveUserProfile({
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            plan: (user.plan as "starter" | "plus" | "pro") || "starter",
-          });
+          saveUserProfile(user);
           setStatus("done");
           await unlockAndSync();
           return;
@@ -114,14 +120,9 @@ export default function Gate() {
         // ── Legacy OAuth callback (JWT from landing page) ──
         if (token) {
           saveAuthToken(token);
-          const user = await verifyToken();
+          const user = await verifyToken(token, API_BASE_URL);
           if (user) {
-            saveUserProfile({
-              id: user.id,
-              email: user.email,
-              name: user.name,
-              plan: (user.plan as "starter" | "plus" | "pro") || "starter",
-            });
+            saveUserProfile(user);
             setStatus("done");
             await unlockAndSync();
             return;
@@ -141,6 +142,10 @@ export default function Gate() {
   }, []);
 
   const handleSignIn = async () => {
+    // Debounce: prevent rapid repeated OAuth initiations (2-second cooldown)
+    const now = Date.now();
+    if (now - _lastOAuthClick < 2000) return;
+    _lastOAuthClick = now;
     setError(null);
     setStatus("waiting");
     try {

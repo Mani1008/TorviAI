@@ -9,8 +9,14 @@ import {
   FileText,
   SlidersHorizontal,
   CreditCard,
+  LogOut,
+  LogIn,
 } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { invoke } from "@tauri-apps/api/core";
+import { logout } from "@/lib/appwrite";
+import { clearAuthToken, clearUserProfile, loadUserProfile } from "@/lib/storage/auth";
 
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
@@ -25,6 +31,26 @@ const navItems = [
 ];
 
 export function Sidebar() {
+  const [isSignedIn, setIsSignedIn] = useState(() => loadUserProfile() !== null);
+
+  const handleSignOut = async () => {
+    setIsSignedIn(false);
+    try {
+      await logout();
+    } catch {
+      // Session may already be expired — continue with local cleanup
+    }
+    clearAuthToken();
+    clearUserProfile();
+    // Hide all app windows and show the gate
+    await invoke("lock_app").catch(() => {});
+  };
+
+  const handleSignIn = async () => {
+    // Show the gate window for sign-in
+    await invoke("open_gate").catch(() => {});
+  };
+
   return (
     <aside className="flex h-full w-56 flex-col border-r border-border bg-sidebar-background p-3">
       <div className="mb-6 px-2 pt-2">
@@ -51,6 +77,26 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
+      {/* Auth action — pinned to sidebar footer */}
+      <div className="mt-2 border-t border-border pt-2">
+        {isSignedIn ? (
+          <button
+            onClick={handleSignOut}
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground/60 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            Sign out
+          </button>
+        ) : (
+          <button
+            onClick={handleSignIn}
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-sidebar-foreground/60 hover:bg-indigo-500/10 hover:text-indigo-400 transition-colors"
+          >
+            <LogIn className="h-4 w-4 shrink-0" />
+            Sign in
+          </button>
+        )}
+      </div>
     </aside>
   );
 }

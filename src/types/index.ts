@@ -1,4 +1,3 @@
-export type { TYPE_PROVIDER } from "./provider.type";
 export type {
   ChatMessage,
   ChatConversation,

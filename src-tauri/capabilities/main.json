@@ -13,7 +13,8 @@
         { "url": "https://openrouter.ai/**" },
         { "url": "https://integrate.api.nvidia.com/**" },
         { "url": "https://streaming.assemblyai.com/**" },
-        { "url": "https://cloud.appwrite.io/**" }
+        { "url": "https://cloud.appwrite.io/**" },
+        { "url": "https://sgp.cloud.appwrite.io/**" }
       ]
     }
   ]

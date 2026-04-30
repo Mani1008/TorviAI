@@ -5,7 +5,7 @@
 //!     → send_raw_samples() → decimation to PCM16-16kHz → blocking_send
 //!     → async WS writer task → AssemblyAI WebSocket (persistent)
 //!     → async WS reader task → emits stt-partial / stt-final Tauri events
-//!     → auto-reconnect on unexpected WS drop (2s backoff)
+//!     → session-end oneshot → open_realtime_stt reconnect loop (backoff)
 //!
 //! Note: windows.rs already downmixes multichannel to mono before buffering,
 //! so read_samples() always returns mono f32 at the device's native rate.
@@ -15,13 +15,23 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::handshake::client::generate_key;
 use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::Message;
 
 const WS_URL: &str = "wss://streaming.assemblyai.com/v3/ws";
 const DST_RATE: u32 = 16_000;
+
+/// Maximum duration for a single STT session before it is force-stopped.
+/// Prevents runaway AssemblyAI billing from a held-open WebSocket.
+const MAX_STT_SESSION_SECS: u64 = 600; // 10 minutes
+
+/// Maximum number of automatic reconnect attempts after an unexpected WS drop.
+const MAX_RECONNECT_ATTEMPTS: u32 = 3;
+
+/// Base delay for reconnect exponential backoff (doubles each attempt: 1s, 2s, 4s).
+const RECONNECT_BASE_MS: u64 = 1_000;
 
 // ─── Channel message type ─────────────────────────────────────────────────────
 
@@ -41,6 +51,8 @@ pub struct StreamingSttState {
     pub is_terminated: AtomicBool,
     /// Cached API key for reconnect without re-reading env.
     pub api_key: Mutex<Option<String>>,
+    /// Number of consecutive auto-reconnect attempts (reset on explicit open/close).
+    pub reconnect_count: std::sync::atomic::AtomicU32,
 }
 
 impl Default for StreamingSttState {
@@ -49,6 +61,7 @@ impl Default for StreamingSttState {
             sender: Mutex::new(None),
             is_terminated: AtomicBool::new(false),
             api_key: Mutex::new(None),
+            reconnect_count: std::sync::atomic::AtomicU32::new(0),
         }
     }
 }
@@ -110,9 +123,13 @@ pub fn send_raw_samples(samples: &[f32], src_rate: u32, app: &AppHandle) {
 
 // ─── Core connection logic ────────────────────────────────────────────────────
 
-/// Connect to AssemblyAI, spawn writer + reader tasks, return the audio sender.
-/// Extracted so both open_realtime_stt and auto-reconnect can reuse it.
-async fn establish_session(app: AppHandle, api_key: String) -> Result<mpsc::Sender<SttMsg>, String> {
+/// Connect to AssemblyAI, spawn writer + reader tasks, return the audio sender
+/// and a oneshot receiver that fires when the WS reader task ends.
+/// Reconnect logic lives in open_realtime_stt (not here) to avoid circular Send.
+async fn establish_session(
+    app: AppHandle,
+    api_key: String,
+) -> Result<(mpsc::Sender<SttMsg>, oneshot::Receiver<()>), String> {
     let url = format!("{}?sample_rate={}&speech_model=u3-rt-pro", WS_URL, DST_RATE);
     // Must include all WebSocket upgrade headers manually — when passing
     // an http::Request to connect_async, tungstenite does NOT generate them,
@@ -138,6 +155,23 @@ async fn establish_session(app: AppHandle, api_key: String) -> Result<mpsc::Send
     // blocking_send provides backpressure; receiver drops signal reconnect.
     let (tx, mut rx) = mpsc::channel::<SttMsg>(16);
 
+    // Oneshot: reader task fires this when the WS closes (expected or not).
+    // open_realtime_stt awaits it to know when to attempt a reconnect.
+    let (done_tx, done_rx) = oneshot::channel::<()>();
+
+    // Watchdog: force-close session after MAX_STT_SESSION_SECS to cap billing.
+    // Sends Terminate through the audio channel so writer closes WS gracefully.
+    let app_wd = app.clone();
+    let tx_wd = tx.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(MAX_STT_SESSION_SECS)).await;
+        log::warn!("[StreamingSTT] Session exceeded max duration ({} min) — force-stopping", MAX_STT_SESSION_SECS / 60);
+        let state = app_wd.state::<StreamingSttState>();
+        state.is_terminated.store(true, Ordering::SeqCst);
+        let _ = tx_wd.send(SttMsg::Terminate).await;
+        let _ = app_wd.emit("stt-force-stopped", ());
+    });
+
     // Writer task: channel → WebSocket
     tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
@@ -160,7 +194,10 @@ async fn establish_session(app: AppHandle, api_key: String) -> Result<mpsc::Send
         let _ = ws_sink.close().await;
     });
 
-    // Reader task: WebSocket → Tauri events + auto-reconnect
+    // Reader task: WebSocket → Tauri events.
+    // No reconnect logic here — avoids circular Send issue with establish_session.
+    // Fires done_tx when the WS closes so the reconnect loop in open_realtime_stt
+    // can decide whether to reconnect.
     let app_reader = app.clone();
     tokio::spawn(async move {
         while let Some(Ok(msg)) = ws_source.next().await {
@@ -212,22 +249,17 @@ async fn establish_session(app: AppHandle, api_key: String) -> Result<mpsc::Send
         }
 
         log::debug!("[StreamingSTT] WS reader ended");
-
-        // Auto-reconnect (unless deliberately terminated)
-        let state = app_reader.state::<StreamingSttState>();
-        if !state.is_terminated.load(Ordering::SeqCst) {
-            state.sender.lock().unwrap().take();
-            log::info!("[StreamingSTT] Unexpected WS drop — emitting stt-disconnected");
-            let _ = app_reader.emit("stt-disconnected", ());
-        }
+        // Signal the reconnect loop in open_realtime_stt that this session is over.
+        let _ = done_tx.send(());
     });
 
-    Ok(tx)
+    Ok((tx, done_rx))
 }
 
 // ─── Tauri commands ───────────────────────────────────────────────────────────
 
-/// Open an AssemblyAI real-time streaming session (open once, stream forever).
+/// Open an AssemblyAI real-time streaming session.
+/// Runs a reconnect loop (with exponential backoff) for the lifetime of the session.
 #[tauri::command]
 pub async fn open_realtime_stt(app: AppHandle) -> Result<(), String> {
     let api_key = std::env::var("ASSEMBLYAI_API_KEY")
@@ -240,13 +272,49 @@ pub async fn open_realtime_stt(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    // Mark active and cache key for reconnect
+    // Mark active and reset reconnect counter
     state.is_terminated.store(false, Ordering::SeqCst);
+    state.reconnect_count.store(0, Ordering::SeqCst);
     state.api_key.lock().unwrap().replace(api_key.clone());
 
-    let tx = establish_session(app.clone(), api_key).await?;
-    state.sender.lock().unwrap().replace(tx);
-    log::info!("[StreamingSTT] Session opened");
+    // Reconnect loop with exponential backoff (runs for the session lifetime).
+    loop {
+        let (tx, done_rx) = match establish_session(app.clone(), api_key.clone()).await {
+            Ok(pair) => pair,
+            Err(e) => {
+                log::error!("[StreamingSTT] Failed to establish session: {}", e);
+                return Err(e);
+            }
+        };
+
+        state.sender.lock().unwrap().replace(tx);
+        log::info!("[StreamingSTT] Session opened");
+
+        // Block until the WS reader task signals session ended.
+        done_rx.await.ok();
+        state.sender.lock().unwrap().take();
+
+        // Terminated deliberately (close command or watchdog) — don't reconnect
+        if state.is_terminated.load(Ordering::SeqCst) {
+            log::info!("[StreamingSTT] Session ended (terminated)");
+            break;
+        }
+
+        let attempts = state.reconnect_count.fetch_add(1, Ordering::SeqCst);
+        if attempts >= MAX_RECONNECT_ATTEMPTS {
+            log::warn!("[StreamingSTT] Max reconnect attempts ({}) reached — giving up", MAX_RECONNECT_ATTEMPTS);
+            state.reconnect_count.store(0, Ordering::SeqCst);
+            let _ = app.emit("stt-disconnected", ());
+            break;
+        }
+
+        // Exponential backoff: 1s, 2s, 4s
+        let delay_ms = RECONNECT_BASE_MS * (1u64 << attempts);
+        log::info!("[StreamingSTT] Unexpected WS drop — reconnect attempt {}/{} in {}ms",
+            attempts + 1, MAX_RECONNECT_ATTEMPTS, delay_ms);
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+    }
+
     Ok(())
 }
 

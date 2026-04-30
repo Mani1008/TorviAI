@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -48,8 +49,15 @@ pub struct OAuthCallbackPayload {
 ///
 /// On receiving the callback, emits `oauth-callback-received` with the token
 /// to all open windows, then responds with a "you can close this tab" page.
+/// The server accepts exactly one connection. If no connection arrives within
+/// 5 minutes the task exits automatically, releasing the port.
+/// Only the gate window may invoke this command.
 #[tauri::command]
-pub async fn start_oauth_callback_server(app: AppHandle) -> Result<u16, String> {
+pub async fn start_oauth_callback_server(app: AppHandle, window: tauri::WebviewWindow) -> Result<u16, String> {
+    if window.label() != "gate" {
+        log::warn!("[Auth] start_oauth_callback_server called from unexpected window: {}", window.label());
+        return Err("Not authorized".to_string());
+    }
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| format!("Failed to bind OAuth callback port: {}", e))?;
@@ -60,67 +68,86 @@ pub async fn start_oauth_callback_server(app: AppHandle) -> Result<u16, String> 
         .port();
 
     tokio::spawn(async move {
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf = vec![0u8; 8192];
-            let n = stream.read(&mut buf).await.unwrap_or(0);
-            let request = String::from_utf8_lossy(&buf[..n]);
+        // Wait up to 5 minutes for the browser to deliver the OAuth callback.
+        // This prevents the spawned task from parking on accept() indefinitely
+        // if the user closes the browser without completing authentication.
+        let accept_result = tokio::time::timeout(
+            Duration::from_secs(300),
+            listener.accept(),
+        ).await;
 
-            // Parse: GET /callback?token=XYZ or /callback?userId=X&secret=Y&provider=appwrite
-            if let Some(first_line) = request.lines().next() {
-                let parts: Vec<&str> = first_line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    let path = parts[1];
+        let (mut stream, _) = match accept_result {
+            Ok(Ok(conn)) => conn,
+            Ok(Err(e)) => {
+                log::warn!("[Auth] OAuth callback accept error: {}", e);
+                return;
+            }
+            Err(_) => {
+                log::warn!("[Auth] OAuth callback server timed out after 5 min — no browser callback received");
+                return;
+            }
+        };
 
-                    // Reject requests that are not the expected callback path
-                    if !path.starts_with("/callback") {
-                        let reject = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                        let _ = stream.write_all(reject.as_bytes()).await;
-                        return;
-                    }
+        let mut buf = vec![0u8; 8192];
+        let n = stream.read(&mut buf).await.unwrap_or(0);
+        let request = String::from_utf8_lossy(&buf[..n]);
 
-                    let query = path.find('?').map(|i| &path[i + 1..]).unwrap_or("");
+        // Parse: GET /callback?token=XYZ or /callback?userId=X&secret=Y&provider=appwrite
+        if let Some(first_line) = request.lines().next() {
+            let parts: Vec<&str> = first_line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let path = parts[1];
 
-                    let mut token = String::new();
-                    let mut user_id = String::new();
-                    let mut secret = String::new();
-                    let mut provider = String::new();
-                    let mut state = String::new();
+                // Reject requests that are not the expected callback path
+                if !path.starts_with("/callback") {
+                    let reject = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    let _ = stream.write_all(reject.as_bytes()).await;
+                    return;
+                }
 
-                    for pair in query.split('&') {
-                        if let Some((k, v)) = pair.split_once('=') {
-                            // Use full percent-decode (not just 4 chars)
-                            let decoded = percent_decode(v);
-                            match k {
-                                "token" => token = decoded,
-                                "userId" => user_id = decoded,
-                                "secret" => secret = decoded,
-                                "provider" => provider = decoded,
-                                "state" => state = decoded,
-                                _ => {}
-                            }
-                        }
-                    }
+                let query = path.find('?').map(|i| &path[i + 1..]).unwrap_or("");
 
-                    let has_data = !token.is_empty() || (!user_id.is_empty() && !secret.is_empty());
+                let mut token = String::new();
+                let mut user_id = String::new();
+                let mut secret = String::new();
+                let mut provider = String::new();
+                let mut state = String::new();
 
-                    if has_data {
-                        let payload = OAuthCallbackPayload {
-                            token: token.clone(),
-                            user_id: user_id.clone(),
-                            secret: secret.clone(),
-                            provider: provider.clone(),
-                            state: state.clone(),
-                        };
-                        // Emit only to the gate window — it owns the OAuth flow.
-                        // Other windows (main, dashboard) should not receive auth tokens.
-                        if let Some(win) = app.get_webview_window("gate") {
-                            let _ = win.emit("oauth-callback-received", payload);
+                for pair in query.split('&') {
+                    if let Some((k, v)) = pair.split_once('=') {
+                        // Use full percent-decode (not just 4 chars)
+                        let decoded = percent_decode(v);
+                        match k {
+                            "token" => token = decoded,
+                            "userId" => user_id = decoded,
+                            "secret" => secret = decoded,
+                            "provider" => provider = decoded,
+                            "state" => state = decoded,
+                            _ => {}
                         }
                     }
                 }
-            }
 
-            let html = r#"<!DOCTYPE html>
+                let has_data = !token.is_empty() || (!user_id.is_empty() && !secret.is_empty());
+
+                if has_data {
+                    let payload = OAuthCallbackPayload {
+                        token: token.clone(),
+                        user_id: user_id.clone(),
+                        secret: secret.clone(),
+                        provider: provider.clone(),
+                        state: state.clone(),
+                    };
+                    // Emit only to the gate window — it owns the OAuth flow.
+                    // Other windows (main, dashboard) should not receive auth tokens.
+                    if let Some(win) = app.get_webview_window("gate") {
+                        let _ = win.emit("oauth-callback-received", payload);
+                    }
+                }
+            }
+        }
+
+        let html = r#"<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>Signed in</title>
 <style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#09090f;color:#fff}
@@ -132,13 +159,12 @@ h2{margin:0 0 .5rem;font-size:1.2rem}p{color:#666;margin:0;font-size:.9rem}</sty
 <p>You can close this tab and return to Torvi.</p>
 </div></body></html>"#;
 
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                html.len(),
-                html
-            );
-            let _ = stream.write_all(response.as_bytes()).await;
-        }
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            html.len(),
+            html
+        );
+        let _ = stream.write_all(response.as_bytes()).await;
     });
 
     Ok(port)

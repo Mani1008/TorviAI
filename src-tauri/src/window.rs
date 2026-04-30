@@ -1,4 +1,28 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow};
+
+/// Tracks whether the user has successfully authenticated.
+/// Used to gate the pill bar show-paths (shortcuts, toggle_overlay) from
+/// revealing the UI to an unauthenticated user.
+pub struct AuthState(pub AtomicBool);
+
+impl Default for AuthState {
+    fn default() -> Self {
+        Self(AtomicBool::new(false))
+    }
+}
+
+impl AuthState {
+    pub fn set_unlocked(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+    pub fn set_locked(&self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+    pub fn is_unlocked(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
 
 /// Apply Windows-specific style to hide window from taskbar Apps section.
 /// Forces the window into Background Processes in Task Manager.
@@ -121,8 +145,15 @@ pub fn setup_main_window(window: &WebviewWindow) -> Result<(), Box<dyn std::erro
 
 /// Called from the frontend after successful authentication.
 /// Shows the pill bar and hides the gate window.
+/// Only the gate window is permitted to call this command.
 #[tauri::command]
-pub async fn unlock_app(app: AppHandle) -> Result<(), String> {
+pub async fn unlock_app(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    if window.label() != "gate" {
+        log::warn!("[Auth] unlock_app called from unexpected window: {}", window.label());
+        return Err("Not authorized".to_string());
+    }
+    // Mark user as authenticated — gates shortcuts and toggle_overlay
+    app.state::<AuthState>().set_unlocked();
     // Show the pill bar
     if let Some(main) = app.get_webview_window("main") {
         main.show().map_err(|e: tauri::Error| e.to_string())?;
@@ -130,9 +161,47 @@ pub async fn unlock_app(app: AppHandle) -> Result<(), String> {
         #[cfg(target_os = "windows")]
         apply_background_process_style(&main);
     }
+    // If the dashboard window already exists from a previous session, reload its
+    // WebView so React remounts with a fresh, authenticated state. Without this,
+    // the hidden window's stale React state (isSignedIn=false, stale user data)
+    // would persist and show when the user opens the dashboard next.
+    if let Some(dash) = app.get_webview_window("dashboard") {
+        let _ = dash.eval("window.location.reload()");
+    }
     // Hide the gate window (don't destroy — user can open it again from Settings)
     if let Some(gate) = app.get_webview_window("gate") {
         gate.hide().map_err(|e: tauri::Error| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Called from the frontend on sign-out.
+/// The reverse of `unlock_app`: hides all app windows and shows the gate.
+/// Callable from the `dashboard` or `main` window only.
+#[tauri::command]
+pub async fn lock_app(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    if window.label() != "dashboard" && window.label() != "main" {
+        log::warn!("[Auth] lock_app called from unexpected window: {}", window.label());
+        return Err("Not authorized".to_string());
+    }
+    // Clear authenticated flag so shortcuts can no longer show the pill bar
+    app.state::<AuthState>().set_locked();
+    // Hide the pill bar
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+    }
+    // Hide the dashboard window
+    if let Some(dash) = app.get_webview_window("dashboard") {
+        let _ = dash.hide();
+    }
+    // Show the gate — create it if it was closed
+    if let Some(gate) = app.get_webview_window("gate") {
+        gate.show().map_err(|e: tauri::Error| e.to_string())?;
+        gate.set_focus().map_err(|e: tauri::Error| e.to_string())?;
+        #[cfg(target_os = "windows")]
+        apply_background_process_style(&gate);
+    } else {
+        create_gate_window(&app, true).await?;
     }
     Ok(())
 }
@@ -159,8 +228,13 @@ pub async fn create_gate_hidden(app: AppHandle) -> Result<(), String> {
 }
 
 /// Show the gate window (called from frontend when the sign-in UI is ready).
+/// Only the gate window itself may call this (it shows itself once React has mounted).
 #[tauri::command]
-pub async fn show_gate(app: AppHandle) -> Result<(), String> {
+pub async fn show_gate(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    if window.label() != "gate" {
+        log::warn!("[Auth] show_gate called from unexpected window: {}", window.label());
+        return Err("Not authorized".to_string());
+    }
     if let Some(window) = app.get_webview_window("gate") {
         window.show().map_err(|e: tauri::Error| e.to_string())?;
         window.set_focus().map_err(|e: tauri::Error| e.to_string())?;
@@ -257,8 +331,13 @@ pub async fn toggle_dashboard(app: AppHandle) -> Result<(), String> {
 }
 
 /// Toggle the main overlay window visibility.
+/// Only works when the user is authenticated — prevents showing the pill bar
+/// before sign-in via keyboard shortcuts or other entry points.
 #[tauri::command]
 pub async fn toggle_overlay(app: AppHandle) -> Result<(), String> {
+    if !app.state::<AuthState>().is_unlocked() {
+        return Ok(());
+    }
     if let Some(window) = app.get_webview_window("main") {
         if window.is_visible().unwrap_or(false) {
             window.hide().map_err(|e: tauri::Error| e.to_string())?;

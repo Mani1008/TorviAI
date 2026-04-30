@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Outlet } from "react-router";
 import { Sidebar } from "@/components/Sidebar";
 import { Onboarding, isOnboarded } from "@/components/Onboarding";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { loadUserProfile } from "@/lib/storage/auth";
 import { X, Minus, Square } from "lucide-react";
 
 function TitleBar() {
@@ -51,6 +52,15 @@ function TitleBar() {
 
 export function DashboardLayout() {
   const [showOnboarding, setShowOnboarding] = useState(() => !isOnboarded());
+
+  // Auth gate — if there's no valid session when the dashboard mounts, hide this
+  // window immediately. The gate is managed by Rust (shown on startup and by lock_app).
+  // Do NOT call open_gate here — it can interfere with the unlock_app reload cycle.
+  useEffect(() => {
+    if (!loadUserProfile()) {
+      getCurrentWindow().hide().catch(() => {});
+    }
+  }, []);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { PageLayout } from "@/layouts";
 import {
   getTotalConversationCount,
@@ -8,10 +8,13 @@ import {
 import { loadSessionCount } from "@/lib/storage/usage";
 import { loadSelectedModel } from "@/lib/storage/ai-providers";
 import { getModelById } from "@/config/models.constants";
-import { loadUserProfile } from "@/lib/storage/auth";
+import { loadUserProfile, clearAuthToken, clearUserProfile } from "@/lib/storage/auth";
 import { loadUsageStats } from "@/lib/storage/usage-stats";
 import { PLAN_LIMITS } from "@/config/constants";
 import type { UserProfile, UsageStats } from "@/types/settings";
+import { logout } from "@/lib/appwrite";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   MessageSquare,
   Bot,
@@ -21,6 +24,7 @@ import {
   Crown,
   Headphones,
   Sparkles,
+  LogOut,
 } from "lucide-react";
 
 function StatCard({
@@ -57,30 +61,60 @@ export default function Dashboard() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [usage, setUsage] = useState<UsageStats | null>(null);
 
-  useEffect(() => {
-    Promise.all([
-      getTotalConversationCount(),
-      getTodayMessageCount(),
-      getTotalMessageCount(),
-    ])
-      .then(([totalConversations, todayMessages, totalMessages]) => {
-        setStats({
-          totalConversations,
-          todayMessages,
-          totalMessages,
-          sessions: loadSessionCount(),
-        });
-      })
-      .catch(console.error);
+  const handleSignOut = async () => {
+    // Clear local state immediately so no data is visible while the window hides
+    setUser(null);
+    setUsage(null);
+    setStats({ totalConversations: 0, todayMessages: 0, totalMessages: 0, sessions: 0 });
+    try { await logout(); } catch { /* session may be expired */ }
+    clearAuthToken();
+    clearUserProfile();
+    // Hide all app windows and show the gate
+    await invoke("lock_app").catch(() => {});
+  };
 
-    // Derive active provider label
+  const loadData = useCallback(async () => {
+    // Load SQLite stats regardless of auth state (SQLite is local, always accessible)
+    try {
+      const [totalConversations, todayMessages, totalMessages] = await Promise.all([
+        getTotalConversationCount(),
+        getTodayMessageCount(),
+        getTotalMessageCount(),
+      ]);
+      setStats({
+        totalConversations,
+        todayMessages,
+        totalMessages,
+        sessions: loadSessionCount(),
+      });
+    } catch {
+      // SQLite not yet ready — silently ignore
+    }
+
     const model = getModelById(loadSelectedModel());
     setActiveProvider(model ? `OpenRouter — ${model.name}` : "OpenRouter");
 
-    // Load user profile + usage
+    // User card and usage only shown when signed in
     setUser(loadUserProfile());
     setUsage(loadUsageStats());
   }, []);
+
+  useEffect(() => {
+    loadData();
+
+    // Reload data whenever the window regains focus.
+    // This covers the case where the user signs out, then signs back in —
+    // the dashboard is re-shown and its data must reflect the new session.
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused) loadData();
+      })
+      .then((fn) => { unlisten = fn; })
+      .catch(() => {});
+
+    return () => { unlisten?.(); };
+  }, [loadData]);
 
   const planLabel =
     user?.plan === "pro" ? "Pro" : user?.plan === "plus" ? "Plus" : "Starter";
@@ -132,6 +166,14 @@ export default function Dashboard() {
               </div>
               <p className="text-sm text-muted-foreground">{user.email}</p>
             </div>
+            <button
+              onClick={handleSignOut}
+              title="Sign out"
+              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-red-500/10 hover:text-red-400 transition-colors border border-transparent hover:border-red-500/20"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Sign out
+            </button>
           </div>
         )}
 

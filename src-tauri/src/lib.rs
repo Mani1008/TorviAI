@@ -20,6 +20,9 @@ pub fn run() {
         // --- Managed State ---
         .manage(speaker::commands::SpeakerState::default())
         .manage(streaming_stt::StreamingSttState::default())
+        .manage(api::AiRequestCounter::default())
+        .manage(capture::CaptureCooldown::default())
+        .manage(window::AuthState::default())
         // --- Plugins ---
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -55,9 +58,13 @@ pub fn run() {
 
             // Register global shortcut: Ctrl+Shift+H → smart toggle overlay
             // Hidden → show+focus | Visible+unfocused → focus | Visible+focused → hide
+            // Only fires when the user is authenticated.
             let h1 = app.handle().clone();
             app.global_shortcut().on_shortcut("ctrl+shift+h", move |_app, _shortcut, event| {
                 if event.state == ShortcutState::Pressed {
+                    if !h1.state::<window::AuthState>().is_unlocked() {
+                        return;
+                    }
                     if let Some(w) = h1.get_webview_window("main") {
                         let visible = w.is_visible().unwrap_or(false);
                         let focused = w.is_focused().unwrap_or(false);
@@ -74,9 +81,13 @@ pub fn run() {
             }).unwrap_or_else(|e| log::error!("[GlobalShortcut] Failed to register Ctrl+Shift+H: {}", e));
 
             // Register global shortcut: Ctrl+Shift+I → focus overlay + input field
+            // Only fires when the user is authenticated.
             let h2 = app.handle().clone();
             app.global_shortcut().on_shortcut("ctrl+shift+i", move |_app, _shortcut, event| {
                 if event.state == ShortcutState::Pressed {
+                    if !h2.state::<window::AuthState>().is_unlocked() {
+                        return;
+                    }
                     if let Some(w) = h2.get_webview_window("main") {
                         let _ = w.show();
                         let _ = w.set_focus();
@@ -91,6 +102,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // Window commands
             window::unlock_app,
+            window::lock_app,
             window::open_gate,
             window::show_gate,
             window::set_window_height,

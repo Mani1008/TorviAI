@@ -246,10 +246,10 @@ export default function Billing() {
             <p className="text-sm text-muted-foreground">Unlimited everything</p>
           </div>
           <div>
-            <span className="text-4xl font-bold">₹1,999</span>
+            <span className="text-4xl font-bold">₹2,999</span>
             <span className="text-sm text-muted-foreground"> / month</span>
             <p className="text-xs text-muted-foreground mt-1">
-              + ₹{Math.round(1999 * GST_RATE)} GST = <strong>₹{1999 + Math.round(1999 * GST_RATE)}</strong> total
+              + ₹{Math.round(2999 * GST_RATE)} GST = <strong>₹{2999 + Math.round(1999 * GST_RATE)}</strong> total
             </p>
           </div>
           <FeatureList features={PRO_FEATURES} />

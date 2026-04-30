@@ -9,7 +9,6 @@ interface RemoteSettings {
   responseLength: string;
   language: string;
   systemPrompt: string;
-  providerMode: string;
 }
 
 /**
@@ -22,7 +21,6 @@ export async function pushSettings(userId: string): Promise<void> {
   const resp = loadResponseSettings();
   const model = loadSelectedModel();
   const rawPrompt = safeLocalStorage.getItem(STORAGE_KEYS.SYSTEM_PROMPT) ?? DEFAULT_SYSTEM_PROMPT;
-  const providerMode = safeLocalStorage.getItem(STORAGE_KEYS.PROVIDER_MODE) ?? "openrouter";
 
   // Enforce a maximum size before syncing — system prompts may contain sensitive
   // instructions or context that should not be pushed to cloud unbounded.
@@ -38,7 +36,6 @@ export async function pushSettings(userId: string): Promise<void> {
     responseLength: resp.length,
     language: resp.language,
     systemPrompt: sysPrompt,
-    providerMode: typeof providerMode === "string" ? providerMode : JSON.stringify(providerMode),
   };
 
   try {
@@ -61,7 +58,6 @@ export async function fetchRemoteSettings(userId: string): Promise<RemoteSetting
       responseLength: doc.responseLength ?? "auto",
       language: doc.language ?? "English",
       systemPrompt: doc.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
-      providerMode: doc.providerMode ?? "openrouter",
     };
   } catch {
     return null;

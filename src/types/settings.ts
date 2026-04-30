@@ -20,7 +20,8 @@ export interface UserProfile {
   email: string;
   name: string;
   avatarUrl?: string;
-  plan: "starter" | "plus" | "pro" | "dev";
+  /** "free" is Appwrite's stored value — normalized to "starter" everywhere in the app */
+  plan: "starter" | "free" | "plus" | "pro" | "dev";
 }
 
 /**
