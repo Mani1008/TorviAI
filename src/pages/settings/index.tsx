@@ -1,177 +1,280 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { PageLayout } from "@/layouts";
 import { useAppContext } from "@/contexts/app.context";
-import { Label } from "@/components/ui/label";
-import { OPENROUTER_MODELS, MODEL_CATEGORIES, getModelById, type ModelCategory } from "@/config/models.constants";
-import { loadSelectedModel, saveSelectedModel } from "@/lib/storage/ai-providers";
-import { Sparkles, Eye, Zap, Brain, Code2, CheckCircle2 } from "lucide-react";
+import {
+  INTERVIEW_ROLES,
+  type InterviewRoleId,
+  type SpecialisationId,
+} from "@/config/interview-roles.constants";
+import {
+  applyInterviewRole,
+  loadInterviewRole,
+  loadInterviewSpec,
+} from "@/lib/storage/ai-providers";
+import { loadResponseSettings, saveResponseSettings } from "@/lib/storage/response-settings.storage";
+import { logout } from "@/lib/appwrite";
+import { clearAuthToken, clearUserProfile, loadUserProfile } from "@/lib/storage/auth";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  Code2,
+  Users,
+  LineChart,
+  BarChart2,
+  Building2,
+  ShoppingBag,
+  Sparkles,
+  Info,
+  Check,
+} from "lucide-react";
 
-const CATEGORY_ICONS: Record<ModelCategory, React.ReactNode> = {
-  general: <Sparkles className="h-3.5 w-3.5" />,
-  vision: <Eye className="h-3.5 w-3.5" />,
-  fast: <Zap className="h-3.5 w-3.5" />,
-  reasoning: <Brain className="h-3.5 w-3.5" />,
-  coding: <Code2 className="h-3.5 w-3.5" />,
+// ─── Icon resolver ────────────────────────────────────────────────────────────
+const ROLE_ICONS: Record<string, React.ReactNode> = {
+  Code2: <Code2 className="h-5 w-5" />,
+  Users: <Users className="h-5 w-5" />,
+  LineChart: <LineChart className="h-5 w-5" />,
+  BarChart2: <BarChart2 className="h-5 w-5" />,
+  Building2: <Building2 className="h-5 w-5" />,
+  Handshake: <ShoppingBag className="h-5 w-5" />,
+  Sparkles: <Sparkles className="h-5 w-5" />,
 };
+
+const RESPONSE_LENGTHS = [
+  { id: "short" as const, label: "Short", sub: "2–4 sentences" },
+  { id: "medium" as const, label: "Medium", sub: "1–2 paragraphs" },
+  { id: "auto" as const, label: "Auto", sub: "AI decides the appropriate length" },
+];
+
+const LANGUAGES = [
+  "English", "Spanish", "French", "German", "Italian", "Portuguese",
+  "Dutch", "Russian", "Chinese", "Japanese", "Korean", "Arabic",
+  "Hindi", "Turkish", "Polish",
+];
+
+const MAX_PROMPT_LENGTH = 3000;
 
 export default function Settings() {
   const { systemPrompt, updateSystemPrompt } = useAppContext();
+
+  // Interview role + specialisation
+  const [selectedRole, setSelectedRole] = useState<InterviewRoleId>(() => loadInterviewRole());
+  const [selectedSpec, setSelectedSpec] = useState<SpecialisationId | null>(() => {
+    const stored = loadInterviewSpec();
+    return stored === "none" ? null : stored;
+  });
+
+  // Response settings
+  const [respSettings, setRespSettings] = useState(() => loadResponseSettings());
+
+  // System prompt
   const [promptValue, setPromptValue] = useState(systemPrompt);
-  const [selectedModel, setSelectedModel] = useState(() => loadSelectedModel());
-  const [activeCategory, setActiveCategory] = useState<ModelCategory | "all">("all");
 
-  const handlePromptChange = (value: string) => {
-    setPromptValue(value);
-    updateSystemPrompt(value);
+  // Save flash
+  const [saved, setSaved] = useState(false);
+
+  const currentRole = INTERVIEW_ROLES.find((r) => r.id === selectedRole)!;
+
+  const handleRoleSelect = (roleId: InterviewRoleId) => {
+    setSelectedRole(roleId);
+    // Reset spec to first available for new role, or null
+    const role = INTERVIEW_ROLES.find((r) => r.id === roleId)!;
+    const firstSpec = role.specialisations[0]?.id ?? null;
+    setSelectedSpec(firstSpec);
   };
 
-  const handleModelSelect = (modelId: string) => {
-    setSelectedModel(modelId);
-    saveSelectedModel(modelId);
+  const handleSave = useCallback(() => {
+    applyInterviewRole(selectedRole, selectedSpec);
+    saveResponseSettings(respSettings);
+    updateSystemPrompt(promptValue);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }, [selectedRole, selectedSpec, respSettings, promptValue, updateSystemPrompt]);
+
+  const handleSignOutAll = async () => {
+    try { await logout(); } catch { /* expired */ }
+    clearAuthToken();
+    clearUserProfile();
+    await invoke("lock_app").catch(() => {});
   };
 
-  const filtered = activeCategory === "all"
-    ? OPENROUTER_MODELS
-    : OPENROUTER_MODELS.filter((m) => m.category === activeCategory);
-
-  const currentModel = getModelById(selectedModel);
+  const user = loadUserProfile();
 
   return (
-    <PageLayout
-      title="Settings"
-      description="Configure your Torvi assistant"
-    >
-      <div className="space-y-10 max-w-2xl">
+    <PageLayout title="Settings" description="Configure AI model, response preferences, and system prompt">
+      {/* Save button */}
+      <div className="flex justify-end mb-6">
+        <button
+          onClick={handleSave}
+          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          {saved && <Check className="h-4 w-4" />}
+          {saved ? "Saved!" : "Save Settings"}
+        </button>
+      </div>
 
-        {/* ── AI Model Selection ── */}
+      <div className="space-y-10 max-w-3xl">
+
+        {/* ── Interview / Meeting Type ── */}
         <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              AI Model
-            </h3>
-            {currentModel && (
-              <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                Active: {currentModel.name}
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Most models are provided via OpenRouter. Models marked <span className="font-semibold text-green-400">NIM</span> use NVIDIA NIM and require a separate API key.
-          </p>
-
-          {/* Category filter pills */}
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              onClick={() => setActiveCategory("all")}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                activeCategory === "all"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-            >
-              All
-            </button>
-            {(Object.keys(MODEL_CATEGORIES) as ModelCategory[]).map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                  activeCategory === cat
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                }`}
-              >
-                {CATEGORY_ICONS[cat]}
-                {MODEL_CATEGORIES[cat]}
-              </button>
-            ))}
+          <div>
+            <h3 className="text-base font-semibold">Interview / Meeting Type</h3>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Select your role and specialisation — we automatically choose the best AI model for you.
+            </p>
           </div>
 
-          {/* Model grid */}
-          <div className="grid gap-2">
-            {filtered.map((model) => {
-              const isSelected = model.id === selectedModel;
+          {/* Role grid */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {INTERVIEW_ROLES.map((role) => {
+              const isSelected = role.id === selectedRole;
               return (
                 <button
-                  key={model.id}
-                  onClick={() => handleModelSelect(model.id)}
-                  className={`w-full text-left rounded-lg border px-4 py-3 transition-all ${
+                  key={role.id}
+                  onClick={() => handleRoleSelect(role.id)}
+                  className={`relative text-left rounded-xl border p-4 transition-all ${
                     isSelected
-                      ? "border-primary bg-primary/10"
-                      : "border-border bg-card hover:border-primary/50 hover:bg-accent/50"
+                      ? "border-primary bg-primary/8"
+                      : "border-border bg-card hover:border-primary/40 hover:bg-accent/40"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium truncate">{model.name}</span>
-                        {model.isFree && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 shrink-0">
-                            FREE
-                          </span>
-                        )}
-                        {model.providerTag === "nvidia" && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-500/15 text-green-400 shrink-0">
-                            NIM
-                          </span>
-                        )}
-                        {model.recommended && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-400 shrink-0">
-                            RECOMMENDED
-                          </span>
-                        )}
-                        {model.supportsVision && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0 flex items-center gap-0.5">
-                            <Eye className="h-2.5 w-2.5" /> Vision
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{model.description}</p>
-                      <p className="text-[10px] text-muted-foreground/60 mt-1 font-mono">{model.id}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      {isSelected && <CheckCircle2 className="h-4 w-4 text-primary" />}
-                      <span className="text-[10px] text-muted-foreground">
-                        {(model.contextWindow / 1000).toFixed(0)}K ctx
-                      </span>
-                    </div>
+                  {isSelected && (
+                    <Check className="absolute right-3 top-3 h-4 w-4 text-primary" />
+                  )}
+                  <div className={`mb-2 ${isSelected ? "text-primary" : "text-muted-foreground"}`}>
+                    {ROLE_ICONS[role.icon]}
                   </div>
+                  <p className="text-sm font-medium leading-tight">{role.label}</p>
+                  <p className="text-xs text-muted-foreground mt-1 leading-snug">{role.description}</p>
                 </button>
               );
             })}
           </div>
 
-          {/* NVIDIA NIM key notice — shown when an NIM model is selected */}
-          {currentModel?.providerTag === "nvidia" && (
-            <div className="rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3 space-y-1.5">
-              <p className="text-xs font-semibold text-green-400">NVIDIA NIM API Key required</p>
-              <p className="text-xs text-muted-foreground">
-                Add your key to <span className="font-mono text-muted-foreground/80">.env</span>{" "}
-                as <span className="font-mono text-muted-foreground/80">NVIDIA_API_KEY=nvapi-…</span>
+          {/* Specialisation pills — only shown when the selected role has specialisations */}
+          {currentRole.specialisations.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Specialisation
               </p>
-              <p className="text-xs text-muted-foreground">
-                Get a free key at{" "}
-                <span className="text-green-400 underline underline-offset-2">build.nvidia.com</span>
-              </p>
+              <div className="flex flex-wrap gap-2">
+                {currentRole.specialisations.map((spec) => {
+                  const isActive = selectedSpec === spec.id;
+                  return (
+                    <button
+                      key={spec.id}
+                      onClick={() => setSelectedSpec(spec.id)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/70"
+                      }`}
+                    >
+                      {spec.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
+
+          {/* Info note */}
+          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3">
+            <Info className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+            <p className="text-xs text-muted-foreground">
+              AI model selected automatically based on your specialisation. You can focus on your interview — we handle the rest.
+            </p>
+          </div>
+        </section>
+
+        {/* ── Response Length ── */}
+        <section className="space-y-4">
+          <h3 className="text-base font-semibold">Response Length</h3>
+          <div className="grid grid-cols-3 gap-3">
+            {RESPONSE_LENGTHS.map((opt) => {
+              const isSelected = respSettings.length === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => setRespSettings((s) => ({ ...s, length: opt.id }))}
+                  className={`relative text-left rounded-xl border p-4 transition-all ${
+                    isSelected
+                      ? "border-primary bg-primary/8"
+                      : "border-border bg-card hover:border-primary/40"
+                  }`}
+                >
+                  {isSelected && (
+                    <Check className="absolute right-3 top-3 h-4 w-4 text-primary" />
+                  )}
+                  <p className="text-sm font-medium">{opt.label}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{opt.sub}</p>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ── Response Language ── */}
+        <section className="space-y-4">
+          <h3 className="text-base font-semibold">Response Language</h3>
+          <div className="flex flex-wrap gap-2">
+            {LANGUAGES.map((lang) => {
+              const isSelected = respSettings.language === lang;
+              return (
+                <button
+                  key={lang}
+                  onClick={() => setRespSettings((s) => ({ ...s, language: lang }))}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                    isSelected
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/70"
+                  }`}
+                >
+                  {lang}
+                </button>
+              );
+            })}
+          </div>
         </section>
 
         {/* ── System Prompt ── */}
         <section className="space-y-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            System Prompt
-          </h3>
-          <div className="space-y-2">
-            <Label>Default instruction for the AI assistant</Label>
+          <h3 className="text-base font-semibold">System Prompt</h3>
+          <div className="relative">
             <textarea
-              className="w-full min-h-30 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              placeholder="Enter a system prompt..."
+              className="w-full min-h-40 rounded-xl border border-input bg-background px-4 py-3 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+              placeholder="Enter a system prompt…"
+              maxLength={MAX_PROMPT_LENGTH}
               value={promptValue}
-              onChange={(e) => handlePromptChange(e.target.value)}
+              onChange={(e) => setPromptValue(e.target.value)}
             />
+            <span className="absolute bottom-3 right-3 text-[10px] text-muted-foreground/60 select-none">
+              {promptValue.length} / {MAX_PROMPT_LENGTH}
+            </span>
           </div>
+          <p className="text-xs text-muted-foreground">
+            This prompt is used as the default instruction for all AI interactions.
+          </p>
         </section>
+
+        {/* ── Security ── */}
+        {user && (
+          <section className="space-y-4">
+            <h3 className="text-base font-semibold">Security</h3>
+            <div className="flex items-center justify-between rounded-xl border border-border p-4">
+              <div>
+                <p className="text-sm font-medium">Sign out of all devices</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Revokes every active session, including other browsers and devices.
+                </p>
+              </div>
+              <button
+                onClick={handleSignOutAll}
+                className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/8 px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/15 transition-colors shrink-0 ml-4"
+              >
+                Sign out all
+              </button>
+            </div>
+          </section>
+        )}
 
       </div>
     </PageLayout>

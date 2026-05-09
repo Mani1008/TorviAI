@@ -6,8 +6,7 @@ import {
   getTotalMessageCount,
 } from "@/lib/database";
 import { loadSessionCount } from "@/lib/storage/usage";
-import { loadSelectedModel } from "@/lib/storage/ai-providers";
-import { getModelById } from "@/config/models.constants";
+
 import { loadUserProfile, clearAuthToken, clearUserProfile } from "@/lib/storage/auth";
 import { loadUsageStats } from "@/lib/storage/usage-stats";
 import { PLAN_LIMITS } from "@/config/constants";
@@ -17,7 +16,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   MessageSquare,
-  Bot,
   Layers,
   Activity,
   User,
@@ -57,7 +55,6 @@ export default function Dashboard() {
     totalMessages: 0,
     sessions: 0,
   });
-  const [activeProvider, setActiveProvider] = useState("Loading…");
   const [user, setUser] = useState<UserProfile | null>(null);
   const [usage, setUsage] = useState<UsageStats | null>(null);
 
@@ -90,9 +87,6 @@ export default function Dashboard() {
     } catch {
       // SQLite not yet ready — silently ignore
     }
-
-    const model = getModelById(loadSelectedModel());
-    setActiveProvider(model ? `OpenRouter — ${model.name}` : "OpenRouter");
 
     // User card and usage only shown when signed in
     setUser(loadUserProfile());
@@ -231,7 +225,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-3">
           <StatCard
             icon={MessageSquare}
             label="Conversations"
@@ -250,12 +244,6 @@ export default function Dashboard() {
             value={stats.sessions}
             sub="lifetime app opens"
           />
-          <StatCard
-            icon={Bot}
-            label="Active Provider"
-            value=""
-            sub={activeProvider}
-          />
         </div>
 
         {/* Quick tips */}
@@ -265,7 +253,7 @@ export default function Dashboard() {
             <li><kbd className="kbd">Ctrl+Shift+H</kbd> — toggle the overlay from anywhere</li>
             <li><kbd className="kbd">Ctrl+Shift+S</kbd> — capture a screenshot for AI analysis</li>
             <li><kbd className="kbd">Ctrl+Shift+M</kbd> — start/stop microphone voice input</li>
-            <li>Use <strong>Settings → Provider</strong> to switch to your own API key</li>
+            <li>Use <strong>Settings</strong> to change interview type, response length, or system prompt</li>
           </ul>
         </div>
       </div>
