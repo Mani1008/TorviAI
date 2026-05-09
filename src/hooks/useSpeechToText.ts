@@ -39,6 +39,10 @@ export function useSpeechToText() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  // Tracks user intent: true = user wants mic on, false = user stopped it.
+  // Web Speech API fires onend during silence gaps even in continuous mode — we
+  // use this ref to auto-restart rather than treating those as intentional stops.
+  const shouldBeListeningRef = useRef(false);
 
   const start = useCallback(() => {
     const SpeechRecognition =
@@ -77,21 +81,39 @@ export function useSpeechToText() {
       console.error("[STT] Error:", event.error);
       if (event.error !== "no-speech" && event.error !== "aborted") {
         toast.error(`Microphone error: ${event.error}`);
+        // Non-recoverable error — stop trying to restart
+        shouldBeListeningRef.current = false;
+        setIsListening(false);
+      }
+    };
+
+    recognition.onend = () => {
+      // Chrome/WebView2 fires onend during silence gaps even in continuous mode.
+      // If the user hasn't explicitly stopped, auto-restart so the button stays active.
+      if (shouldBeListeningRef.current && recognitionRef.current === recognition) {
+        setTimeout(() => {
+          if (shouldBeListeningRef.current && recognitionRef.current === recognition) {
+            try {
+              recognition.start();
+            } catch {
+              // start() throws if already running — safe to ignore
+            }
+          }
+        }, 100);
+        return;
       }
       setIsListening(false);
     };
 
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
     recognitionRef.current = recognition;
+    shouldBeListeningRef.current = true;
     recognition.start();
     setIsListening(true);
     setTranscript("");
   }, []);
 
   const stop = useCallback((): string => {
+    shouldBeListeningRef.current = false; // signal onend NOT to auto-restart
     const currentTranscript = transcript;
     if (recognitionRef.current) {
       recognitionRef.current.stop();

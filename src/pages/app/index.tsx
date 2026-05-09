@@ -9,10 +9,24 @@ import { UsageTimer } from "@/components/UsageTimer";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useToast } from "@/hooks/useToast";
 import { ToastContainer } from "@/components/Toast";
-import { getModelById } from "@/config/models.constants";
-import { loadSelectedModel } from "@/lib/storage/ai-providers";
-import { addListeningSeconds } from "@/lib/storage/usage-stats";
+import { addListeningSeconds, checkListeningLimit } from "@/lib/storage/usage-stats";
 import { loadUserProfile } from "@/lib/storage/auth";
+import { STORAGE_KEYS, DEFAULT_SCREENSHOT_CONFIG } from "@/config/constants";
+import type { ScreenshotConfig } from "@/types/settings";
+import { saveScreenshot } from "@/lib/database/screenshots";
+import { syncScreenshot } from "@/lib/appwrite/sync-screenshots";
+
+/** Read the latest screenshot config directly from localStorage (not React state).
+ * The pill bar and dashboard are separate Tauri windows — React context state is
+ * not shared between them, only localStorage is. */
+function loadScreenshotConfigNow(): ScreenshotConfig {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.SCREENSHOT_CONFIG);
+    return raw ? (JSON.parse(raw) as ScreenshotConfig) : DEFAULT_SCREENSHOT_CONFIG;
+  } catch {
+    return DEFAULT_SCREENSHOT_CONFIG;
+  }
+}
 
 // The pill bar is the only transparent window — override the global dark background
 function useTransparentWindow() {
@@ -82,7 +96,12 @@ export default function App() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [sttText, setSttText] = useState("");
   const [showIntensity, setShowIntensity] = useState(false);
-  const [screenImage, setScreenImage] = useState<string | null>(null);
+  // Tracks whether any toolbar tooltip is currently hovered.
+  // The pill bar window is only 44px tall — tooltips rendered at rect.bottom+8 would be
+  // clipped by the OS window boundary. We expand to 88px on hover so they're visible.
+  const [tooltipHovered, setTooltipHovered] = useState(false);
+  // Per-slide screenshot map: key = slide index at the moment the screenshot was taken
+  const [slideScreenshots, setSlideScreenshots] = useState<Record<number, string>>({});
   const [currentSlide, setCurrentSlide] = useState(0);
   const { transparency, setTransparency } = useTheme();
   const toast = useToast();
@@ -118,18 +137,23 @@ export default function App() {
     if (capturing) {
       stopCapture();
     } else {
+      // Block start if listening limit is already exhausted
+      const limitMsg = checkListeningLimit();
+      if (limitMsg) { toast.error(limitMsg); return; }
       startCapture();
     }
-  }, [capturing, stopCapture, startCapture]);
+  }, [capturing, stopCapture, startCapture, toast]);
 
   const handleMicToggle = useCallback(() => {
     if (isMicListening) {
       const finalText = stopListening();
       if (finalText) setSttText(finalText);
     } else {
+      const limitMsg = checkListeningLimit();
+      if (limitMsg) { toast.error(limitMsg); return; }
       toggleMic();
     }
-  }, [isMicListening, stopListening, toggleMic]);
+  }, [isMicListening, stopListening, toggleMic, toast]);
 
   useEffect(() => {
     if (!isMicListening && transcript) setSttText(transcript);
@@ -149,15 +173,29 @@ export default function App() {
     }
   }, [slides.length]);
 
-  // Resize window to match content: 44px (toolbar only), 110px (intensity popover), or 600px (panel)
+  // Listen for tooltip hover events dispatched by the Tooltip component.
+  // We expand the Tauri window from 44→88px so the tooltip isn't OS-clipped.
+  useEffect(() => {
+    const onShow = () => setTooltipHovered(true);
+    const onHide = () => setTooltipHovered(false);
+    window.addEventListener("pill-tooltip-show", onShow);
+    window.addEventListener("pill-tooltip-hide", onHide);
+    return () => {
+      window.removeEventListener("pill-tooltip-show", onShow);
+      window.removeEventListener("pill-tooltip-hide", onHide);
+    };
+  }, []);
+
+  // Resize window to match content: 44px (toolbar), 88px (+tooltip), 110px (intensity), 600px (panel)
   useEffect(() => {
     import("@tauri-apps/api/core").then(({ invoke }) => {
       let height = 44;
       if (isExpanded) height = 600;
       else if (showIntensity) height = 110;
+      else if (tooltipHovered) height = 88;
       invoke("set_window_height", { height }).catch(() => {});
     });
-  }, [isExpanded, showIntensity]);
+  }, [isExpanded, showIntensity, tooltipHovered]);
 
   const openDashboard = async () => {
     try {
@@ -173,7 +211,7 @@ export default function App() {
     abort(); // Stop any in-progress streaming first
     clearMessages(); clearError();
     clearSystemConversation(); clearSystemError();
-    setScreenImage(null);
+    setSlideScreenshots({});
     setCurrentSlide(0);
   };
 
@@ -188,24 +226,27 @@ export default function App() {
   const responseCount = messages.filter((m) => m.role === "assistant").length;
 
   const handleScreenAnalysis = useCallback(async () => {
-    const currentModel = getModelById(loadSelectedModel());
-    if (!currentModel?.supportsVision) {
-      toast.error(
-        currentModel
-          ? `${currentModel.name} doesn't support images. Switch to a vision model in Settings.`
-          : "Selected model doesn't support images. Switch to a vision model in Settings."
-      );
-      return;
-    }
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const imgData: string = await invoke("start_screen_capture");
-      setScreenImage(imgData);
+      // Attach image to the slide that is about to be created.
+      // slides are only counted once the assistant replies, so the new
+      // slide index equals the current completed-slide count.
+      const newSlideIndex = slides.length;
+      setSlideScreenshots((prev) => ({ ...prev, [newSlideIndex]: imgData }));
       setIsExpanded(true);
-      await sendMessage(
-        "Look at this screenshot carefully. Identify what is being shown — if it's a coding problem, provide a complete working solution with explanation; if it's an error or bug, diagnose and fix it; if it's a UI or design, critique and suggest improvements; if it's a document or article, summarize the key points. Be specific and actionable.",
-        [imgData]
-      );
+      // Read config fresh from localStorage — the dashboard window may have updated
+      // it after this window was opened (React context state is per-window, not shared).
+      const screenshotPrompt = loadScreenshotConfigNow().autoPrompt;
+      const prompt = screenshotPrompt || DEFAULT_SCREENSHOT_CONFIG.autoPrompt;
+
+      // Persist screenshot locally (SQLite) and sync to Appwrite (best-effort)
+      const id = `scr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const capturedAt = Date.now();
+      saveScreenshot({ id, imageData: imgData, prompt, capturedAt, conversationId: null }).catch(() => {});
+      syncScreenshot({ id, imageData: imgData, prompt, capturedAt }).catch(() => {});
+
+      await sendMessage(prompt, [imgData]);
     } catch (e) {
       console.error("Screen analysis failed:", e);
       toast.error("Screen analysis failed");
@@ -296,13 +337,35 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleListenToggle, handleMicToggle, isExpanded, transparency, goPrevSlide, goNextSlide]);
 
-  // ─── Track listening seconds ───────────────────────────────────────────────
+  // ─── Track listening seconds, enforce plan limit, sync to Appwrite every 1 s ─
   useEffect(() => {
     if (!capturing && !isMicListening) return;
     const interval = setInterval(() => {
       addListeningSeconds(1);
+
+      // ── Enforce plan limit ─────────────────────────────────────────────────
+      const limitMsg = checkListeningLimit();
+      if (limitMsg) {
+        // Stop both audio sources immediately
+        if (capturing) stopCapture();
+        if (isMicListening) stopListening();
+        clearInterval(interval);
+        toast.error(limitMsg);
+        return;
+      }
+
+      // ── Sync consumed second to Appwrite ──────────────────────────────────
+      const user = loadUserProfile();
+      if (user?.id) {
+        import("@tauri-apps/api/core").then(({ invoke }) =>
+          invoke("record_usage", { userId: user.id, usageType: "listening_seconds", amount: 1 }).catch(() => {})
+        );
+      }
     }, 1000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [capturing, isMicListening]);
 
   return (
@@ -535,15 +598,15 @@ export default function App() {
               </div>
             )}
 
-            {/* Screen capture preview */}
-            {screenImage && (
+            {/* Per-slide screenshot preview */}
+            {slideScreenshots[currentSlide] && (
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] text-white/30 px-1">Screen captured</span>
                 <img
-                  src={screenImage}
+                  src={slideScreenshots[currentSlide]}
                   alt="Screen capture"
                   className="rounded-lg max-w-full border border-white/10 shadow cursor-pointer"
-                  onClick={() => setScreenImage(null)}
+                  onClick={() => setSlideScreenshots((prev) => { const next = { ...prev }; delete next[currentSlide]; return next; })}
                   title="Click to dismiss"
                 />
               </div>

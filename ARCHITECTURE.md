@@ -1,8 +1,66 @@
 # Architecture of Desktop AI Assistant (Torvi)
 
+# Progress Update v0.4 (May 2026)
+
+**This section summarizes the latest improvements as of May 2026.**
+
+## Security: Server-Side Rate Limit Enforcement
+
+A critical security vulnerability was identified and fixed: the `user_profiles` Appwrite collection had `Permission.write(Role.user(userId))`, meaning any user could PATCH their own `aiResponsesRemaining` and `listeningMinutesRemaining` values via the Appwrite REST API — effectively giving themselves unlimited usage.
+
+**Fix implemented:**
+- Created a new dedicated `user_usage` Appwrite collection, separate from `user_profiles`.
+- Users have **read-only** access to their own `user_usage` document. All writes go exclusively through the Rust backend using `APPWRITE_API_SECRET` (server-side API key).
+- New `src-tauri/src/usage.rs` module with three Tauri commands:
+  - `initialize_user_usage(user_id, plan)` — idempotent doc creation with correct starting limits
+  - `decrement_usage(user_id, usage_type, amount)` — atomic field decrement via REST PATCH
+  - `push_local_usage(user_id, ai_remaining, listening_remaining)` — one-way ratchet: only writes if local shows more usage than remote (prevents forged increments)
+- All `invoke("decrement_usage", ...)` calls happen from TypeScript via Tauri IPC — the API secret never leaves the Rust process.
+- `user_profiles` no longer stores any usage fields; those columns have been removed.
+
+## Plan Limits Rationalized
+
+Previous plan limits were placeholders (`pro: (-1, -1)` which converted to 100,000 in Rust, exceeding Appwrite's column Max: 1000 constraint). New real limits:
+
+| Plan | AI Responses | Listening Time |
+|------|-------------|----------------|
+| Starter | 30 | 30 min |
+| Plus | 120 | 2 hours |
+| Pro | 500 | 10 hours |
+
+`PLAN_LIMITS` in `src/config/constants.ts` is now the single source of truth, used by both TypeScript (display, local enforcement) and mirrored in `usage.rs` (Appwrite writes).
+
+## Listening Time Stored in Seconds
+
+Appwrite previously stored `listeningMinutesRemaining` as integer minutes. This caused rounding errors — a 47-second listening session was either lost or rounded up to a full minute.
+
+**Change:** The field is now `listeningSecondsRemaining`, storing raw seconds.
+
+| | Before | After |
+|---|---|---|
+| Appwrite field | `listeningMinutesRemaining` | `listeningSecondsRemaining` |
+| Init value (starter) | 30 min | 1,800 s |
+| Init value (plus) | 120 min | 7,200 s |
+| Init value (pro) | 600 min | 36,000 s |
+| Decrement cadence | Every 60 s, −1 min | Every 1 s, −1 s |
+| Partial session rounding | ≥10 s counted as 1 full min | Exact — 47 s = 47 s |
+| Desktop display | Minutes (unchanged) | Still minutes (converted at render) |
+| Startup sync conversion | `minutes × 60` → seconds | Direct 1:1, no conversion |
+
+The desktop UI still shows minutes everywhere — the conversion is only at the display layer. Appwrite is the source of truth in seconds.
+
+## Appwrite Sync Improvements
+
+- `sync.ts` startup reconciliation no longer does minutes↔seconds conversion; it works directly in seconds end-to-end.
+- `push_local_usage` ratchet logic simplified: compares `localRemaining` (seconds) directly against `remoteUsage.listeningSecondsRemaining`.
+- `fetchRemoteUsage` in `sync-profiles.ts` returns `listeningSecondsRemaining` instead of `listeningMinutesRemaining`.
+- The `aiRemaining` calculation no longer uses a magic `100_000` fallback; it properly uses `limits.aiResponses`.
+
+---
+
 # Progress Update v0.3 (April 2026)
 
-**This section summarizes the current state of Torvi (formerly Torvi) as of April 2026.**
+**This section summarizes the state of Torvi as of April 2026.**
 
 ## Branding
 - **Renamed**: Torvi → **Torvi** across all source files, window titles, system prompts, and UI text.
@@ -29,9 +87,31 @@
 
 ## AI Model System
 - **Multi-provider support**: OpenRouter (30+ models) + NVIDIA NIM (Gemma 4, Llama 4, Nemotron).
-- **Model selection UI**: Settings page with category filters (General Purpose, Coding, Deep Reasoning, Vision, Fast & Lightweight).
-- **Flow**: Settings UI → `saveSelectedModel()` → localStorage → `loadSelectedModel()` → Rust `get_ai_config(modelId)` → API request.
+- **Model selection UI**: Role-based interview/meeting type selector (7 cards + specialisation pills). Model IDs are **never shown to the user** — selected automatically based on role.
+- **Flow**: Settings UI → `applyInterviewRole(roleId, specId)` → `resolveModelForRole()` → `saveSelectedModel()` → localStorage → `loadSelectedModel()` → Rust `get_ai_config(modelId)` → API request.
 - **Streaming**: SSE parsing with configurable response content paths per provider.
+
+## Role → Model Mapping Rationale
+
+Each interview/meeting role is mapped to the model best suited to its task characteristics:
+
+| Role | Specialisation | Model | Rationale |
+|---|---|---|---|
+| Coding | DSA / Algorithms (default) | `deepseek/deepseek-chat-v3-0324` | Highest scores on HumanEval and LiveCodeBench; optimised for competitive programming |
+| Coding | System Design / DevOps | `anthropic/claude-3.7-sonnet` | Best long-form structured reasoning for architecture trade-off analysis |
+| Coding | AI / ML | `openai/o4-mini` | Math-heavy proofs and derivations; strong ML theory and algorithm questions |
+| Behavioural | — | `anthropic/claude-3.7-sonnet` | Empathetic, STAR-format fluency; excellent at tone-matching and narrative structure |
+| Consulting | Frameworks / Strategy (default) | `openai/gpt-4o` | Strong case frameworks, business logic, structured tables and concise reasoning |
+| Consulting | Market Sizing | `openai/o4-mini` | Estimation problems require explicit step-by-step arithmetic reasoning |
+| Data Analyst | SQL / Stats (default) | `openai/o4-mini` | SQL query planning, statistical test selection, A/B math |
+| Data Analyst | BI / Reporting | `openai/gpt-4o` | Better at explaining business context, dashboard design, and stakeholder framing |
+| Tech / Corporate Meeting | — | `google/gemini-pro-1.5` | Largest context window (1M tokens) — handles long transcripts, RFCs, and design docs |
+| Sales Meeting | — | `anthropic/claude-3.5-haiku` | Fast, persuasive, conversational — lowest latency for live call coaching |
+| General / Other | — | `openai/gpt-4o` | Well-rounded reliable fallback for unspecified use cases |
+
+- Model IDs are defined in `src/config/interview-roles.constants.ts` → `ROLE_MODEL_MAP`.
+- The only derivation point is `resolveModelForRole(roleId, specId)` — change models there.
+- All role-based model IDs are whitelisted in `src-tauri/src/api.rs` `ALLOWED_MODELS`.
 
 ## Audio Pipeline
 - **System audio**: WASAPI loopback capture → Rust VAD (RMS/peak state machine) → WAV encoding → base64 → Tauri event → STT.
@@ -45,15 +125,21 @@
 - **Rich default prompt**: Structured Torvi system prompt with response formatting, persona, and capability instructions.
 - **CRUD**: SQLite-backed system prompts with dashboard management UI.
 
-## Appwrite Integration (Partial)
-- **7 module files created**: client.ts, auth.ts, sync-profiles.ts, sync-conversations.ts, sync-prompts.ts, sync-settings.ts, sync.ts.
-- **Status**: SDK installed, code written, but **Appwrite database not provisioned** (blocked by Free plan quota limit: 1 database per project, already consumed).
-- **Sync wired into**: useCompletion (AI response decrement), chat-history (conversation sync), response-settings (push), app.context (startup sync).
+## Appwrite Integration
+- **7 module files**: client.ts, auth.ts, sync-profiles.ts, sync-conversations.ts, sync-prompts.ts, sync-settings.ts, sync.ts.
+- **Two Appwrite collections for user data**:
+  - `user_profiles` — profile info only (`name`, `email`, `plan`, `isActive`). User has read+write access.
+  - `user_usage` — rate limit counters (`aiResponsesRemaining`, `listeningSecondsRemaining`). User has **read-only** access; all writes go through Rust with `APPWRITE_API_SECRET`.
+- **Sync wired into**: useCompletion (AI response decrement), app.context (startup sync), app/index.tsx (listening seconds decrement), auth.ts (initialize usage on sign-in).
+- **`usage.rs`**: New Rust module handling all server-side usage writes. Registered commands: `initialize_user_usage`, `decrement_usage`, `push_local_usage`.
 
 ## Usage & Billing
-- **Plan limits**: Starter (30min/30 responses), Plus (2hr/120), Pro (unlimited).
+- **Plan limits** (stored in `src/config/constants.ts` as `PLAN_LIMITS`):
+  - Starter: 30 AI responses / 1,800 s (30 min) listening
+  - Plus: 120 AI responses / 7,200 s (2 hr) listening
+  - Pro: 500 AI responses / 36,000 s (10 hr) listening
 - **Billing page**: 3-tier pricing cards (Starter ₹0, Plus ₹800+, Pro ₹1,999) with GST calculation and adjustable listening/response add-ons.
-- **Usage enforcement**: `checkAiResponseLimit()` guard before AI calls.
+- **Usage enforcement**: `checkAiResponseLimit()` guard before AI calls. Rate limits enforced server-side via `usage.rs` — users cannot forge writes.
 
 ## Response Settings
 - **Response length**: Short (2-4 sentences), Medium (1-2 paragraphs), Auto.
@@ -65,7 +151,6 @@
 
 ## Known Limitations
 - Only dark mode supported (by design).
-- Appwrite database provisioning blocked by plan quota.
 - Google OAuth not configured in Appwrite Console.
 - Response language selection not yet functional (removed from UI).
 
@@ -1075,6 +1160,8 @@ generate_handler![
     // API
     transcribe_audio, chat_stream_response, fetch_models,
     create_system_prompt, check_license_status, get_activity,
+    // Usage (server-side rate limits via APPWRITE_API_SECRET)
+    initialize_user_usage, decrement_usage, push_local_usage,
     // Audio
     start_system_audio_capture, stop_system_audio_capture, manual_stop_continuous,
     check_system_audio_access, request_system_audio_access,
@@ -1407,6 +1494,7 @@ Has active license AND Torvi API enabled?
 | **API Keys** | Stored in localStorage (per-provider); Torvi keys in secure_storage.json |
 | **License Keys** | Stored in app data directory (`secure_storage.json`), never in localStorage |
 | **Instance ID** | UUID generated once via `uuid::Uuid::new_v4()`, stored securely |
+| **Rate Limit Writes** | All writes to `user_usage` go through Rust (`usage.rs`) using `APPWRITE_API_SECRET`; users have read-only access and cannot forge increments |
 | **Content Protection** | `contentProtected: true` — OS-level flag prevents window capture by screen recorders |
 | **CSP** | Explicitly disabled (`"csp": null`) — security enforced via Tauri capability permissions instead |
 | **XSS Prevention** | `rehype-sanitize` in Markdown renderer sanitizes all AI-generated HTML before rendering |

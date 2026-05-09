@@ -1,4 +1,5 @@
 import { client, isAppwriteConfigured } from "./client";
+import { invoke } from "@tauri-apps/api/core";
 import { getActiveSession } from "./auth";
 import { fetchRemoteUsage, fetchRemotePlan } from "./sync-profiles";
 import { fetchRemoteConversations, syncConversation } from "./sync-conversations";
@@ -6,7 +7,7 @@ import { pushSettings, fetchRemoteSettings } from "./sync-settings";
 import { loadUserProfile, saveUserProfile } from "@/lib/storage/auth";
 import { loadUsageStats, saveUsageStats } from "@/lib/storage/usage-stats";
 import { getAllConversations } from "@/lib/database/chat-history";
-import { PLAN_LIMITS, STORAGE_KEYS, DEFAULT_SYSTEM_PROMPT } from "@/config/constants";
+import { STORAGE_KEYS, DEFAULT_SYSTEM_PROMPT } from "@/config/constants";
 import { loadResponseSettings } from "@/lib/storage/response-settings.storage";
 import { saveSelectedModel } from "@/lib/storage/ai-providers";
 import { safeLocalStorage } from "@/lib/storage/helper";
@@ -101,25 +102,33 @@ export async function runStartupSync(): Promise<void> {
     console.warn("[Sync] Plan sync failed:", e);
   }
 
-  // 2. Sync usage limits from Appwrite and apply to local storage
-  // Appwrite is the source of truth for remaining counts.
-  // Convert "remaining" → "used" so the local dashboard stays accurate.
+  // 2. Sync usage — bidirectional reconciliation.
+  // Appwrite stores *used* counts (0 → N). Local stats also count upward.
+  // Ratchet: always take the higher used count between local and remote so
+  // neither side can "forget" usage that was recorded elsewhere.
   try {
     const remoteUsage = await fetchRemoteUsage(userId);
     if (remoteUsage) {
-      const local = loadUserProfile();
-      const planKey = local?.plan === "plus" || local?.plan === "pro" ? local.plan : "starter";
-      const limits = PLAN_LIMITS[planKey];
       const stats = loadUsageStats();
 
-      if (limits.aiResponses !== -1) {
-        stats.aiResponses = Math.max(0, limits.aiResponses - remoteUsage.aiResponsesRemaining);
+      // Take the max of local and remote — never discard usage recorded on either side
+      const syncedAi = Math.max(stats.aiResponses, remoteUsage.aiResponsesUsed);
+      const syncedListening = Math.max(stats.listeningSeconds, remoteUsage.listeningSecondsUsed);
+
+      // If local is ahead of remote, push via Rust (API key) so Appwrite catches up.
+      // Users cannot forge increments by calling this directly — Rust validates the ratchet.
+      if (syncedAi > remoteUsage.aiResponsesUsed || syncedListening > remoteUsage.listeningSecondsUsed) {
+        invoke("push_local_usage", {
+          userId,
+          aiUsed: syncedAi,
+          listeningUsed: syncedListening,
+        }).catch((e: unknown) => console.warn("[Sync] push_local_usage failed:", e));
       }
-      if (limits.listeningSeconds !== -1) {
-        stats.listeningSeconds = Math.max(0, (limits.listeningSeconds / 60 - remoteUsage.listeningMinutesRemaining) * 60);
-      }
+
+      stats.aiResponses = syncedAi;
+      stats.listeningSeconds = syncedListening;
       saveUsageStats(stats);
-      console.log("[Sync] Usage applied — AI used:", stats.aiResponses, "/ listening:", Math.round(stats.listeningSeconds / 60), "min");
+      console.log("[Sync] Usage reconciled — AI used:", stats.aiResponses, "/ listening:", Math.round(stats.listeningSeconds / 60), "min");
     }
   } catch (e) {
     console.warn("[Sync] Usage sync failed:", e);

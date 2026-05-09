@@ -52,6 +52,20 @@ export async function initDatabase(): Promise<void> {
   await conn.execute(
     `CREATE INDEX IF NOT EXISTS idx_messages_conversation_timestamp ON messages(conversation_id, timestamp)`
   );
+
+  // Screenshots table
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS screenshots (
+      id TEXT PRIMARY KEY,
+      image_data TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      captured_at INTEGER NOT NULL,
+      conversation_id TEXT
+    )
+  `);
+  await conn.execute(
+    `CREATE INDEX IF NOT EXISTS idx_screenshots_captured_at ON screenshots(captured_at DESC)`
+  );
 }
 
 export async function createConversation(

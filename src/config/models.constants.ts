@@ -267,7 +267,9 @@ export const OPENROUTER_MODELS: ModelOption[] = [
   },
 ];
 
-export const DEFAULT_MODEL_ID = "nvidia/nemotron-3-super-120b-a12b:free";
+// Default model used when no role has been selected yet.
+// Must be present in ALLOWED_MODELS in src-tauri/src/api.rs.
+export const DEFAULT_MODEL_ID = "meta/llama-4-scout-17b-16e-instruct";
 
 export function getModelById(id: string): ModelOption | undefined {
   return OPENROUTER_MODELS.find((m) => m.id === id);

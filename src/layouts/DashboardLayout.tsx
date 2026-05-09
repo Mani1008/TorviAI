@@ -12,12 +12,18 @@ function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className="flex items-center justify-between h-9 bg-background border-b border-border px-3 select-none shrink-0"
+      className="flex items-center justify-between h-9 bg-background border-b border-border px-3 select-none shrink-0 cursor-move"
+      onMouseDown={(e) => {
+        if (e.button === 0 && !(e.target as HTMLElement).closest("button")) {
+          e.preventDefault();
+          appWindow.startDragging().catch(() => {});
+        }
+      }}
     >
-      {/* Left — app brand */}
-      <div data-tauri-drag-region className="flex items-center gap-2">
-        <div className="h-3.5 w-3.5 rounded-sm bg-indigo-500/80" />
-        <span className="text-xs font-semibold tracking-wide text-foreground/60">
+      {/* Left — app brand (drag region) */}
+      <div data-tauri-drag-region className="flex items-center gap-2 flex-1 h-full">
+        <div className="h-3.5 w-3.5 rounded-sm bg-indigo-500/80 pointer-events-none" />
+        <span className="text-xs font-semibold tracking-wide text-foreground/60 pointer-events-none">
           Torvi
         </span>
       </div>

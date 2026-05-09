@@ -41,7 +41,7 @@ const ALLOWED_IMAGE_PREFIXES: &[&str] = &[
 /// All model IDs that may be requested from the frontend.
 /// Any unlisted model string is rejected to prevent premium-model substitution.
 const ALLOWED_MODELS: &[&str] = &[
-    // OpenRouter models
+    // OpenRouter — General / Fast
     "meta/llama-4-scout-17b-16e-instruct",
     "meta/llama-4-maverick-17b-128e-instruct",
     "meta/llama-3.3-70b-instruct",
@@ -54,6 +54,14 @@ const ALLOWED_MODELS: &[&str] = &[
     "qwen/qwen-2.5-coder-32b-instruct",
     "deepseek/deepseek-r1",
     "deepseek/deepseek-v3",
+    // OpenRouter — Role-based models (selected automatically by interview type)
+    "anthropic/claude-3.7-sonnet:thinking",
+    "anthropic/claude-3.7-sonnet",
+    "anthropic/claude-3.5-haiku",
+    "deepseek/deepseek-chat-v3-0324",
+    "openai/o4-mini",
+    "openai/gpt-4o",
+    "google/gemini-pro-1.5",
     // NVIDIA NIM models
     "meta/llama-3.2-11b-vision-instruct",
     "meta/llama-3.2-90b-vision-instruct",

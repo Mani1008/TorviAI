@@ -63,3 +63,23 @@ export function checkAiResponseLimit(): string | null {
   }
   return null;
 }
+
+/**
+ * Check if the user has exceeded their plan's listening time limit.
+ * Returns null if within limits, or an error message string if exceeded.
+ */
+export function checkListeningLimit(): string | null {
+  const profile = loadUserProfile();
+  if (!profile) return null;
+  const planKey = profile.plan === "dev" || profile.plan === "pro" ? profile.plan : (profile.plan === "plus" ? "plus" : "starter");
+  const limits = PLAN_LIMITS[planKey];
+
+  if ((limits.listeningSeconds as number) === -1) return null; // unlimited
+
+  const stats = loadUsageStats();
+  if (stats.listeningSeconds >= limits.listeningSeconds) {
+    const limitMin = Math.round(limits.listeningSeconds / 60);
+    return `You've reached your ${planKey} plan limit of ${limitMin} minutes of listening time. Upgrade your plan to continue.`;
+  }
+  return null;
+}

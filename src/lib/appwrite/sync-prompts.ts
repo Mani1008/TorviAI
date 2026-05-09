@@ -1,4 +1,4 @@
-import { Query } from "appwrite";
+import { Query, Permission, Role } from "appwrite";
 import { databases, DATABASE_ID, COLLECTION_IDS, isAppwriteConfigured } from "./client";
 
 /**
@@ -18,13 +18,19 @@ export async function syncSystemPrompt(
       updatedAt: prompt.updatedAt,
     });
   } catch {
-    await databases.createDocument(DATABASE_ID, COLLECTION_IDS.SYSTEM_PROMPTS, docId, {
-      userId,
-      name: prompt.name,
-      prompt: prompt.prompt,
-      createdAt: prompt.createdAt,
-      updatedAt: prompt.updatedAt,
-    });
+    await databases.createDocument(
+      DATABASE_ID,
+      COLLECTION_IDS.SYSTEM_PROMPTS,
+      docId,
+      {
+        userId,
+        name: prompt.name,
+        prompt: prompt.prompt,
+        createdAt: prompt.createdAt,
+        updatedAt: prompt.updatedAt,
+      },
+      [Permission.read(Role.user(userId)), Permission.write(Role.user(userId))]
+    );
   }
 }
 

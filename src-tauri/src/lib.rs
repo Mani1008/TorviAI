@@ -7,6 +7,7 @@ mod capture;
 mod shortcuts;
 mod speaker;
 mod streaming_stt;
+mod usage;
 mod window;
 
 /// Run the Tauri application.
@@ -134,6 +135,10 @@ pub fn run() {
             auth::start_oauth_callback_server,
             // API commands — AI requests are proxied through Rust (keys never reach frontend)
             api::stream_ai_request,
+            // Usage tracking — writes counters via server API key (users have no write access)
+            usage::initialize_user_usage,
+            usage::record_usage,
+            usage::push_local_usage,
             // Streaming STT commands
             streaming_stt::open_realtime_stt,
             streaming_stt::close_realtime_stt,

@@ -7,7 +7,8 @@ import {
   addMessage,
 } from "@/lib/database";
 import { incrementAiResponses, checkAiResponseLimit } from "@/lib/storage/usage-stats";
-import { decrementAiResponses, syncConversation } from "@/lib/appwrite";
+import { invoke } from "@tauri-apps/api/core";
+import { syncConversation } from "@/lib/appwrite";
 import { loadUserProfile } from "@/lib/storage/auth";
 
 /**
@@ -154,7 +155,8 @@ export function useCompletion() {
           incrementAiResponses();
           const profile = loadUserProfile();
           if (profile?.id) {
-            decrementAiResponses(profile.id).catch(console.warn);
+            // Decrement via Rust so the API key is used — users cannot forge this
+            invoke("record_usage", { userId: profile.id, usageType: "ai_response" }).catch(console.warn);
             syncConversation(profile.id, {
               id: conversationIdRef.current,
               title: messages[0]?.content?.slice(0, 50) || "New conversation",

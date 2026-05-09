@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { PageLayout } from "@/layouts";
 import { useAppContext } from "@/contexts/app.context";
-import { Camera, Power } from "lucide-react";
+import { Camera, Power, Check } from "lucide-react";
 
 export default function Screenshot() {
   const { screenshotConfiguration, updateScreenshotConfiguration } = useAppContext();
   const [prompt, setPrompt] = useState(screenshotConfiguration.autoPrompt);
+  const [saved, setSaved] = useState(false);
 
   const handlePromptSave = () => {
     updateScreenshotConfiguration({ autoPrompt: prompt });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
   };
 
   return (
@@ -61,17 +64,27 @@ export default function Screenshot() {
 
         {/* ── Analysis Prompt ── */}
         <section className="space-y-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Analysis Prompt
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            The instruction sent to the AI when analyzing a screenshot.
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                Analysis Prompt
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                The instruction sent to the AI when analyzing a screenshot.
+              </p>
+            </div>
+            <button
+              onClick={handlePromptSave}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 ml-4"
+            >
+              {saved && <Check className="h-3.5 w-3.5" />}
+              {saved ? "Saved!" : "Save"}
+            </button>
+          </div>
           <textarea
             className="w-full min-h-24 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            onBlur={handlePromptSave}
           />
         </section>
       </div>

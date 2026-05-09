@@ -107,7 +107,17 @@ export default function Dashboard() {
       .then((fn) => { unlisten = fn; })
       .catch(() => {});
 
-    return () => { unlisten?.(); };
+    // Poll usage stats every 1 s — the pill bar (separate Tauri window) updates
+    // localStorage every second while listening/capturing, but storage events don't
+    // fire cross-window in Tauri. Polling is the only reliable solution.
+    const usagePoll = setInterval(() => {
+      setUsage(loadUsageStats());
+    }, 1000);
+
+    return () => {
+      unlisten?.();
+      clearInterval(usagePoll);
+    };
   }, [loadData]);
 
   const planLabel =
@@ -124,10 +134,13 @@ export default function Dashboard() {
   const listeningUsed = usage?.listeningSeconds ?? 0;
   const responsesUsed = usage?.aiResponses ?? 0;
 
-  const fmtTime = (sec: number) => {
+  const fmtTime = (sec: number, showSeconds = false) => {
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    const s = sec % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (showSeconds) return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
+    return `${m}m`;
   };
 
   return (
@@ -180,7 +193,7 @@ export default function Dashboard() {
                 <span className="text-xs font-medium uppercase tracking-wider">Listening Time</span>
               </div>
               <p className="text-2xl font-bold">
-                {fmtTime(listeningUsed)}
+                {fmtTime(listeningUsed, true)}
                 {limits.listeningSeconds !== -1 && (
                   <span className="text-sm font-normal text-muted-foreground">
                     {" "}/ {fmtTime(limits.listeningSeconds)}

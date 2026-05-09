@@ -6,10 +6,8 @@ import Dashboard from "@/pages/dashboard";
 import Chats from "@/pages/chats";
 import ChatView from "@/pages/chats/view";
 import Settings from "@/pages/settings";
-import SystemPrompts from "@/pages/system-prompts";
 import Shortcuts from "@/pages/shortcuts";
 import Screenshot from "@/pages/screenshot";
-import Audio from "@/pages/audio";
 import Responses from "@/pages/responses";
 import Billing from "@/pages/billing";
 
@@ -29,10 +27,8 @@ export const router = createBrowserRouter([
       { path: "/chats", element: <Chats /> },
       { path: "/chats/view/:conversationId", element: <ChatView /> },
       { path: "/settings", element: <Settings /> },
-      { path: "/system-prompts", element: <SystemPrompts /> },
       { path: "/shortcuts", element: <Shortcuts /> },
       { path: "/screenshot", element: <Screenshot /> },
-      { path: "/audio", element: <Audio /> },
       { path: "/responses", element: <Responses /> },
       { path: "/billing", element: <Billing /> },
     ],

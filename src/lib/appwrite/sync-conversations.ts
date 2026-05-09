@@ -1,4 +1,4 @@
-import { Query } from "appwrite";
+import { Query, Permission, Role } from "appwrite";
 import { databases, DATABASE_ID, COLLECTION_IDS, isAppwriteConfigured } from "./client";
 
 // INFO-03: SECURITY REQUIREMENT — Before enabling cloud sync in production,
@@ -24,12 +24,18 @@ export async function syncConversation(
       updatedAt: new Date(conv.updatedAt).toISOString(),
     });
   } catch {
-    await databases.createDocument(DATABASE_ID, COLLECTION_IDS.CONVERSATIONS, conv.id, {
-      userId,
-      title: conv.title,
-      createdAt: new Date(conv.createdAt).toISOString(),
-      updatedAt: new Date(conv.updatedAt).toISOString(),
-    });
+    await databases.createDocument(
+      DATABASE_ID,
+      COLLECTION_IDS.CONVERSATIONS,
+      conv.id,
+      {
+        userId,
+        title: conv.title,
+        createdAt: new Date(conv.createdAt).toISOString(),
+        updatedAt: new Date(conv.updatedAt).toISOString(),
+      },
+      [Permission.read(Role.user(userId)), Permission.write(Role.user(userId))]
+    );
   }
 }
 

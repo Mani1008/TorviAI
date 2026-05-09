@@ -1,3 +1,4 @@
+import { Permission, Role } from "appwrite";
 import { databases, DATABASE_ID, COLLECTION_IDS, isAppwriteConfigured } from "./client";
 import { loadResponseSettings } from "@/lib/storage/response-settings.storage";
 import { loadSelectedModel } from "@/lib/storage/ai-providers";
@@ -42,7 +43,13 @@ export async function pushSettings(userId: string): Promise<void> {
     await databases.getDocument(DATABASE_ID, COLLECTION_IDS.USER_SETTINGS, userId);
     await databases.updateDocument(DATABASE_ID, COLLECTION_IDS.USER_SETTINGS, userId, data);
   } catch {
-    await databases.createDocument(DATABASE_ID, COLLECTION_IDS.USER_SETTINGS, userId, data);
+    await databases.createDocument(
+      DATABASE_ID,
+      COLLECTION_IDS.USER_SETTINGS,
+      userId,
+      data,
+      [Permission.read(Role.user(userId)), Permission.write(Role.user(userId))]
+    );
   }
 }
 

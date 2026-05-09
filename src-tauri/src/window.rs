@@ -285,8 +285,6 @@ pub async fn open_dashboard(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("dashboard") {
         window.show().map_err(|e: tauri::Error| e.to_string())?;
         window.set_focus().map_err(|e: tauri::Error| e.to_string())?;
-        #[cfg(target_os = "windows")]
-        apply_background_process_style(&window);
         return Ok(());
     }
 
@@ -298,16 +296,12 @@ pub async fn open_dashboard(app: AppHandle) -> Result<(), String> {
         .center()
         .visible(false)
         .decorations(false)
-        .skip_taskbar(true)
         .content_protected(false);
 
     let window = builder.build().map_err(|e| e.to_string())?;
 
     window.show().map_err(|e: tauri::Error| e.to_string())?;
     window.set_focus().map_err(|e: tauri::Error| e.to_string())?;
-
-    #[cfg(target_os = "windows")]
-    apply_background_process_style(&window);
 
     Ok(())
 }

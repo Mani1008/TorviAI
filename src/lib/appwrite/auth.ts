@@ -72,6 +72,7 @@ export async function logout(): Promise<void> {
 }
 
 import { syncUserProfile } from "./sync-profiles";
+import { invoke } from "@tauri-apps/api/core";
 
 /**
  * Convert Appwrite user to the local UserProfile format and sync to Appwrite DB.
@@ -96,6 +97,13 @@ export async function resolveUserProfile(
   } catch (e) {
     console.warn("[Appwrite] Failed to sync user profile:", e);
   }
+
+  // Ensure user_usage document exists (idempotent — no-op if already created).
+  // This document is write-protected for the user; only APPWRITE_API_SECRET can
+  // modify counters. See src-tauri/src/usage.rs for the security rationale.
+  invoke("initialize_user_usage", { userId: profile.id, plan: profile.plan }).catch((e: unknown) =>
+    console.warn("[Appwrite] Failed to initialize user_usage:", e)
+  );
 
   return profile;
 }

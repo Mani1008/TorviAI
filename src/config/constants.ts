@@ -108,10 +108,10 @@ export const DEFAULT_USAGE_STATS: UsageStats = {
  * Plan limits.
  */
 export const PLAN_LIMITS: Record<string, { listeningSeconds: number; aiResponses: number }> = {
-  starter: { listeningSeconds: 30 * 60, aiResponses: 30 },
-  plus: { listeningSeconds: 2 * 60 * 60, aiResponses: 120 },
-  pro: { listeningSeconds: -1, aiResponses: -1 },
-  dev: { listeningSeconds: -1, aiResponses: -1 },
+  starter: { listeningSeconds: 30 * 60,       aiResponses: 30  },
+  plus:    { listeningSeconds: 2 * 60 * 60,   aiResponses: 120 },
+  pro:     { listeningSeconds: 10 * 60 * 60,  aiResponses: 500 }, // 500 responses / 10 h listening per month
+  dev:     { listeningSeconds: 10 * 60 * 60,  aiResponses: 500 },
 };
 
 /**

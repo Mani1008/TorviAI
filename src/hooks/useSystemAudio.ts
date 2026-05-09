@@ -102,16 +102,20 @@ export function useSystemAudio(onTranscript: (text: string) => void) {
         })
       );
 
-      // Status events
+      // Status events — capture-stopped is the only one we trust for state sync.
+      // We do NOT set capturing=true from capture-started because that event can
+      // arrive AFTER the user has already clicked stop (late Tauri event delivery),
+      // which would flip capturing back to true and trigger an unwanted auto-restart.
+      // capturing=true is set optimistically in startCapture() instead.
       unlistens.push(
         await listen("capture-started", () => {
-          console.log("[SystemAudio] Capture started");
-          setCapturing(true);
+          console.log("[SystemAudio] Capture started (confirmed by Rust)");
+          // Intentionally not calling setCapturing(true) here — handled optimistically.
         })
       );
       unlistens.push(
         await listen("capture-stopped", () => {
-          console.log("[SystemAudio] Capture stopped");
+          console.log("[SystemAudio] Capture stopped (confirmed by Rust)");
           setCapturing(false);
         })
       );
@@ -163,9 +167,9 @@ export function useSystemAudio(onTranscript: (text: string) => void) {
   // --- Actions ---
 
   const startCapture = useCallback(async () => {
+    setCapturing(true); // optimistic: update UI immediately, don't wait for Rust event
     try {
       setError("");
-      // Open AssemblyAI streaming session — if it fails, show error and abort
       await invoke("open_realtime_stt");
       assemblyAiActiveRef.current = true;
       console.log("[SystemAudio] AssemblyAI streaming session opened");
@@ -174,18 +178,21 @@ export function useSystemAudio(onTranscript: (text: string) => void) {
         deviceIndex: null,
       });
     } catch (err) {
+      setCapturing(false); // revert on failure
       setError(String(err));
     }
   }, [vadConfig]);
 
   const stopCapture = useCallback(async () => {
+    setCapturing(false); // optimistic: update UI immediately, don't wait for Rust event
     try {
       await invoke("stop_vad_capture");
       await invoke("close_realtime_stt");
       assemblyAiActiveRef.current = false;
-      lastFinalSentRef.current = ""; // reset dedup for next session
+      lastFinalSentRef.current = "";
       setLastTranscription("");
     } catch (err) {
+      setCapturing(true); // revert on failure — stop didn't work
       setError(String(err));
     }
   }, []);

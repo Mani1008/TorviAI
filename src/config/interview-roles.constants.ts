@@ -175,8 +175,8 @@ export const ROLE_MODEL_MAP: RoleModelMap = {
     default: "anthropic/claude-3.5-haiku",
   },
   general: {
-    // Free tier model — good enough for anything unspecified
-    default: "nvidia/nemotron-3-super-120b-a12b:free",
+    // Good all-rounder for unspecified meeting types
+    default: "openai/gpt-4o",
   },
 };
 

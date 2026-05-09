@@ -27,6 +27,9 @@ export function Tooltip({ label, shortcut, children, side = "bottom" }: TooltipP
   }, [side]);
 
   const show = () => {
+    // Dispatch immediately so the parent window can expand BEFORE the tooltip appears.
+    // The 400ms delay gives Tauri plenty of time to resize before the tooltip is visible.
+    window.dispatchEvent(new CustomEvent("pill-tooltip-show"));
     timeoutRef.current = setTimeout(() => {
       updatePos();
       setVisible(true);
@@ -36,6 +39,7 @@ export function Tooltip({ label, shortcut, children, side = "bottom" }: TooltipP
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setVisible(false);
     setAdjustedX(null);
+    window.dispatchEvent(new CustomEvent("pill-tooltip-hide"));
   };
 
   // Clamp tooltip within viewport after it renders

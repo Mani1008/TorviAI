@@ -19,3 +19,11 @@ export {
   updateSystemPrompt,
   deleteSystemPrompt,
 } from "./system-prompts";
+export {
+  saveScreenshot,
+  getAllScreenshots,
+  getScreenshotById,
+  deleteScreenshot,
+  getRecentScreenshots,
+  type ScreenshotRecord,
+} from "./screenshots";
