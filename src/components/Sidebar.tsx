@@ -9,6 +9,7 @@ import {
   CreditCard,
   LogOut,
   LogIn,
+  Brain,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -17,13 +18,14 @@ import { logout } from "@/lib/appwrite";
 import { clearAuthToken, clearUserProfile, loadUserProfile } from "@/lib/storage/auth";
 
 const navItems = [
-  { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/chats", icon: MessageSquare, label: "Chats" },
-  { to: "/shortcuts", icon: Keyboard, label: "Shortcuts" },
-  { to: "/screenshot", icon: Camera, label: "Screenshot" },
-  { to: "/responses", icon: SlidersHorizontal, label: "Responses" },
-  { to: "/billing", icon: CreditCard, label: "Billing" },
-  { to: "/settings", icon: Settings, label: "Settings" },
+  { to: "/dashboard",      icon: LayoutDashboard,   label: "Dashboard" },
+  { to: "/chats",          icon: MessageSquare,      label: "Chats" },
+  { to: "/shortcuts",      icon: Keyboard,           label: "Shortcuts" },
+  { to: "/screenshot",     icon: Camera,             label: "Screenshot" },
+  { to: "/context-memory", icon: Brain,              label: "Context Memory" },
+  { to: "/responses",      icon: SlidersHorizontal,  label: "Responses" },
+  { to: "/billing",        icon: CreditCard,         label: "Billing" },
+  { to: "/settings",       icon: Settings,           label: "Settings" },
 ];
 
 export function Sidebar() {

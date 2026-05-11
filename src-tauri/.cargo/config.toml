@@ -1,0 +1,8 @@
+[build]
+# Disable incremental compilation — reduces memory pressure that can cause
+# STATUS_STACK_BUFFER_OVERRUN in rustc on Windows MSVC targets with large crates.
+incremental = false
+
+[target.x86_64-pc-windows-msvc]
+# Increase the linker stack size to avoid overflows when linking windows crate binaries.
+rustflags = ["-C", "link-arg=/STACK:16777216"]

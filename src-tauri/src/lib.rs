@@ -2,8 +2,11 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod api;
+mod app_context;
 mod auth;
 mod capture;
+mod privacy_filter;
+mod screen_reader;
 mod shortcuts;
 mod speaker;
 mod streaming_stt;
@@ -24,6 +27,7 @@ pub fn run() {
         .manage(api::AiRequestCounter::default())
         .manage(capture::CaptureCooldown::default())
         .manage(window::AuthState::default())
+        .manage(app_context::AppContextState::default())
         // --- Plugins ---
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -116,6 +120,12 @@ pub fn run() {
             capture::capture_to_base64,
             capture::capture_selected_area,
             capture::close_overlay_window,
+            // Screen reader (UIAutomation — replaces screenshot for text extraction)
+            screen_reader::read_active_window_context,
+            // App context watcher (background RAG capture)
+            app_context::start_context_watcher,
+            app_context::stop_context_watcher,
+            app_context::get_watcher_status,
             // Shortcut commands
             shortcuts::update_shortcuts,
             shortcuts::get_registered_shortcuts,

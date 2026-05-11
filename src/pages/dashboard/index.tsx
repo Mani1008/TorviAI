@@ -1,102 +1,65 @@
 import { useEffect, useState, useCallback } from "react";
 import { PageLayout } from "@/layouts";
 import {
-  getTotalConversationCount,
-  getTodayMessageCount,
-  getTotalMessageCount,
+  getAllConversations,
+  getRecentContext,
 } from "@/lib/database";
-import { loadSessionCount } from "@/lib/storage/usage";
 
 import { loadUserProfile, clearAuthToken, clearUserProfile } from "@/lib/storage/auth";
 import { loadUsageStats } from "@/lib/storage/usage-stats";
-import { PLAN_LIMITS } from "@/config/constants";
 import type { UserProfile, UsageStats } from "@/types/settings";
+import type { ChatConversation } from "@/types/completion";
+import type { ContextChunk } from "@/lib/database/context-store";
 import { logout } from "@/lib/appwrite";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@/lib/platform";
-import {
-  MessageSquare,
-  Layers,
-  Activity,
-  User,
-  Crown,
-  Headphones,
-  Sparkles,
-  LogOut,
-} from "lucide-react";
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  sub,
-}: {
-  icon: typeof MessageSquare;
-  label: string;
-  value: string | number;
-  sub?: string;
-}) {
-  return (
-    <div className="rounded-lg border border-border p-5 flex flex-col gap-1">
-      <div className="flex items-center gap-2 text-muted-foreground mb-1">
-        <Icon className="h-4 w-4" />
-        <span className="text-xs font-medium uppercase tracking-wider">{label}</span>
-      </div>
-      <p className="text-3xl font-bold">{value}</p>
-      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-    </div>
-  );
-}
+import { GreetingHeader } from "./components/GreetingHeader";
+import { QuickChatInput } from "./components/QuickChatInput";
+import { RecentActivityFeed } from "./components/RecentActivityFeed";
+import { ContextSnapshot } from "./components/ContextSnapshot";
+import { UsageRow } from "./components/UsageRow";
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({
-    totalConversations: 0,
-    todayMessages: 0,
-    totalMessages: 0,
-    sessions: 0,
-  });
   const [user, setUser] = useState<UserProfile | null>(null);
   const [usage, setUsage] = useState<UsageStats | null>(null);
+  const [conversations, setConversations] = useState<ChatConversation[]>([]);
+  const [recentChunks, setRecentChunks] = useState<ContextChunk[]>([]);
+  const [watcherStatus, setWatcherStatus] = useState<"running" | "stopped">("stopped");
 
   const handleSignOut = async () => {
-    // Clear local state immediately so no data is visible while the window hides
     setUser(null);
     setUsage(null);
-    setStats({ totalConversations: 0, todayMessages: 0, totalMessages: 0, sessions: 0 });
+    setConversations([]);
+    setRecentChunks([]);
     try { await logout(); } catch { /* session may be expired */ }
     clearAuthToken();
     clearUserProfile();
-    // Hide all app windows and show the gate
     await invoke("lock_app").catch(() => {});
   };
 
   const loadData = useCallback(async () => {
-    // Load SQLite stats regardless of auth state (SQLite is local, always accessible)
+    setUser(loadUserProfile());
+    setUsage(loadUsageStats());
+
     try {
-      const [totalConversations, todayMessages, totalMessages] = await Promise.all([
-        getTotalConversationCount(),
-        getTodayMessageCount(),
-        getTotalMessageCount(),
+      const [convs, chunks, status] = await Promise.all([
+        getAllConversations(),
+        getRecentContext(8, 24 * 60),
+        isTauri()
+          ? invoke<string>("get_watcher_status").catch(() => "stopped")
+          : Promise.resolve("stopped"),
       ]);
-      setStats({
-        totalConversations,
-        todayMessages,
-        totalMessages,
-        sessions: loadSessionCount(),
-      });
+      setConversations(convs);
+      setRecentChunks(chunks);
+      setWatcherStatus((status as "running" | "stopped") || "stopped");
     } catch {
       // SQLite not yet ready — silently ignore
     }
-
-    // User card and usage only shown when signed in
-    setUser(loadUserProfile());
-    setUsage(loadUsageStats());
   }, []);
 
   useEffect(() => {
     loadData();
 
-    // Reload data whenever the window regains focus.
     let unlisten: (() => void) | undefined;
     if (isTauri()) {
       import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
@@ -109,169 +72,74 @@ export default function Dashboard() {
       );
     }
 
-    // Poll usage stats every 1 s — the pill bar (separate Tauri window) updates
-    // localStorage every second while listening/capturing, but storage events don't
-    // fire cross-window in Tauri. Polling is the only reliable solution.
-    const usagePoll = setInterval(() => {
+    // Poll usage stats + watcher status every second
+    const poll = setInterval(() => {
       setUsage(loadUsageStats());
+      if (isTauri()) {
+        invoke<string>("get_watcher_status")
+          .then((s) => setWatcherStatus((s as "running" | "stopped") || "stopped"))
+          .catch(() => {});
+      }
     }, 1000);
 
     return () => {
       unlisten?.();
-      clearInterval(usagePoll);
+      clearInterval(poll);
     };
   }, [loadData]);
 
-  const planLabel =
-    user?.plan === "pro" ? "Pro" : user?.plan === "plus" ? "Plus" : "Starter";
-  const planColor =
-    user?.plan === "pro"
-      ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
-      : user?.plan === "plus"
-      ? "bg-indigo-500/15 text-indigo-400 border-indigo-500/30"
-      : "bg-zinc-500/15 text-zinc-400 border-zinc-500/30";
-
-  const planKey = (user?.plan === "plus" || user?.plan === "pro") ? user.plan : "starter";
-  const limits = PLAN_LIMITS[planKey];
-  const listeningUsed = usage?.listeningSeconds ?? 0;
-  const responsesUsed = usage?.aiResponses ?? 0;
-
-  const fmtTime = (sec: number, showSeconds = false) => {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
-    if (h > 0) return `${h}h ${m}m`;
-    if (showSeconds) return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
-    return `${m}m`;
-  };
+  // Count context chunks captured today
+  const todayStart = new Date().setHours(0, 0, 0, 0);
+  const contextChunksToday = recentChunks.filter(
+    (c) => c.captured_at >= todayStart
+  ).length;
 
   return (
     <PageLayout title="Dashboard" description="Overview of your AI assistant usage">
-      <div className="space-y-6">
+      <div className="flex flex-col gap-5">
 
-        {/* ── User Account Card ── */}
-        {user && (
-          <div className="rounded-lg border border-border p-5 flex items-center gap-4">
-            {user.avatarUrl ? (
-              <img
-                src={user.avatarUrl}
-                alt={user.name}
-                className="h-12 w-12 rounded-full border border-border object-cover"
-              />
-            ) : (
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <User className="h-6 w-6 text-muted-foreground" />
-              </div>
-            )}
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold">{user.name}</h2>
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${planColor}`}
-                >
-                  <Crown className="h-3 w-3" />
-                  {planLabel}
-                </span>
-              </div>
-              <p className="text-sm text-muted-foreground">{user.email}</p>
-            </div>
-            <button
-              onClick={handleSignOut}
-              title="Sign out"
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-red-500/10 hover:text-red-400 transition-colors border border-transparent hover:border-red-500/20"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              Sign out
-            </button>
+        {/* ── Greeting header (full width) ── */}
+        <GreetingHeader
+          user={user}
+          watcherStatus={watcherStatus}
+          contextChunksToday={contextChunksToday}
+          onSignOut={handleSignOut}
+        />
+
+        {/* ── Quick chat input (full width) ── */}
+        <QuickChatInput recentChunks={recentChunks} />
+
+        {/* ── Two-column main content ── */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+
+          {/* Left column: recent activity */}
+          <div className="flex flex-col gap-3 lg:col-span-3">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              Recent Activity
+            </h2>
+            <RecentActivityFeed
+              conversations={conversations}
+              contextChunks={recentChunks}
+            />
           </div>
-        )}
 
-        {/* ── Usage Bars ── */}
-        {usage && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-lg border border-border p-4 space-y-2">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Headphones className="h-4 w-4" />
-                <span className="text-xs font-medium uppercase tracking-wider">Listening Time</span>
-              </div>
-              <p className="text-2xl font-bold">
-                {fmtTime(listeningUsed, true)}
-                {limits.listeningSeconds !== -1 && (
-                  <span className="text-sm font-normal text-muted-foreground">
-                    {" "}/ {fmtTime(limits.listeningSeconds)}
-                  </span>
-                )}
-              </p>
-              {limits.listeningSeconds !== -1 && (
-                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all"
-                    style={{
-                      width: `${Math.min(100, (listeningUsed / limits.listeningSeconds) * 100)}%`,
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-            <div className="rounded-lg border border-border p-4 space-y-2">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Sparkles className="h-4 w-4" />
-                <span className="text-xs font-medium uppercase tracking-wider">AI Responses</span>
-              </div>
-              <p className="text-2xl font-bold">
-                {responsesUsed}
-                {limits.aiResponses !== -1 && (
-                  <span className="text-sm font-normal text-muted-foreground">
-                    {" "}/ {limits.aiResponses}
-                  </span>
-                )}
-              </p>
-              {limits.aiResponses !== -1 && (
-                <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-indigo-500 transition-all"
-                    style={{
-                      width: `${Math.min(100, (responsesUsed / limits.aiResponses) * 100)}%`,
-                    }}
-                  />
-                </div>
-              )}
-            </div>
+          {/* Right column: live context snapshot */}
+          <div className="lg:col-span-2">
+            <ContextSnapshot
+              initialChunks={recentChunks}
+              initialStatus={watcherStatus}
+            />
           </div>
-        )}
-
-        <div className="grid gap-4 sm:grid-cols-3">
-          <StatCard
-            icon={MessageSquare}
-            label="Conversations"
-            value={stats.totalConversations}
-            sub="all time"
-          />
-          <StatCard
-            icon={Activity}
-            label="Messages Today"
-            value={stats.todayMessages}
-            sub={`${stats.totalMessages} total`}
-          />
-          <StatCard
-            icon={Layers}
-            label="Sessions"
-            value={stats.sessions}
-            sub="lifetime app opens"
-          />
         </div>
 
-        {/* Quick tips */}
-        <div className="rounded-lg border border-border p-5 space-y-2">
-          <h3 className="text-sm font-semibold">Quick Tips</h3>
-          <ul className="space-y-1 text-sm text-muted-foreground list-disc list-inside">
-            <li><kbd className="kbd">Ctrl+Shift+H</kbd> — toggle the overlay from anywhere</li>
-            <li><kbd className="kbd">Ctrl+Shift+S</kbd> — capture a screenshot for AI analysis</li>
-            <li><kbd className="kbd">Ctrl+Shift+M</kbd> — start/stop microphone voice input</li>
-            <li>Use <strong>Settings</strong> to change interview type, response length, or system prompt</li>
-          </ul>
-        </div>
+        {/* ── Usage row (full width) ── */}
+        <UsageRow
+          user={user}
+          usedListeningSeconds={usage?.listeningSeconds ?? 0}
+          usedAiResponses={usage?.aiResponses ?? 0}
+        />
       </div>
     </PageLayout>
   );
 }
+

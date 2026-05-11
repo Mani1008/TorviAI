@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import type { ChatMessage, Message } from "@/types/completion";
-import { streamAIFromConfig } from "@/lib/functions/ai-response.function";
+import { streamAIFromConfig, buildContextAwareSystemPrompt } from "@/lib/functions/ai-response.function";
 import { useAppContext } from "@/contexts/app.context";
 import {
   createConversation,
@@ -105,10 +105,14 @@ export function useCompletion() {
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
+      // Augment the system prompt with recent screen context (RAG).
+      // Falls back silently to the base prompt if context is unavailable.
+      const augmentedSystemPrompt = await buildContextAwareSystemPrompt(systemPrompt, text);
+
       try {
         for await (const chunk of streamAIFromConfig({
           messages: apiMessages,
-          systemPrompt,
+          systemPrompt: augmentedSystemPrompt,
           images,
           abortSignal: controller.signal,
         })) {

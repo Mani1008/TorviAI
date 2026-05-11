@@ -10,6 +10,7 @@ import Shortcuts from "@/pages/shortcuts";
 import Screenshot from "@/pages/screenshot";
 import Responses from "@/pages/responses";
 import Billing from "@/pages/billing";
+import ContextMemory from "@/pages/context-memory";
 
 export const router = createBrowserRouter([
   {
@@ -31,6 +32,7 @@ export const router = createBrowserRouter([
       { path: "/screenshot", element: <Screenshot /> },
       { path: "/responses", element: <Responses /> },
       { path: "/billing", element: <Billing /> },
+      { path: "/context-memory", element: <ContextMemory /> },
     ],
   },
 ]);

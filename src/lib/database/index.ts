@@ -27,3 +27,11 @@ export {
   getRecentScreenshots,
   type ScreenshotRecord,
 } from "./screenshots";
+export {
+  initContextStore,
+  saveContextChunk,
+  getRecentContext,
+  pruneOldContext,
+  type ContextChunk,
+  type AppContextSnapshot,
+} from "./context-store";
