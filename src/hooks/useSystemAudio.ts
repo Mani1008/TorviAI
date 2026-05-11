@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { isTauri } from "@/lib/platform";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -144,13 +145,17 @@ export function useSystemAudio(onTranscript: (text: string) => void) {
       unlistenRefs.current = unlistens;
     };
 
-    setupListeners();
+    if (isTauri()) {
+      setupListeners();
+    }
 
     return () => {
       unlistenRefs.current.forEach((unlisten) => unlisten());
       unlistenRefs.current = [];
-      // Close AssemblyAI session on unmount
-      invoke("close_realtime_stt").catch(() => {});
+      // Close AssemblyAI session on unmount (Tauri only)
+      if (isTauri()) {
+        invoke("close_realtime_stt").catch(() => {});
+      }
     };
     // processSpeech is intentionally omitted to avoid re-registering listeners
     // on every conversation change — we use a ref-based approach in the listener

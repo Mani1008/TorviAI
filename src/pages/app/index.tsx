@@ -7,6 +7,7 @@ import { useSystemAudio } from "@/hooks/useSystemAudio";
 import { useTheme } from "@/contexts/theme.context";
 import { UsageTimer } from "@/components/UsageTimer";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauri } from "@/lib/platform";
 import { useToast } from "@/hooks/useToast";
 import { ToastContainer } from "@/components/Toast";
 import { addListeningSeconds, checkListeningLimit } from "@/lib/storage/usage-stats";
@@ -112,7 +113,7 @@ export default function App() {
   // or the user pressed Ctrl+Shift+H while the gate is open.
   useEffect(() => {
     if (!loadUserProfile()) {
-      getCurrentWindow().hide().catch(() => {});
+      if (isTauri()) getCurrentWindow().hide().catch(() => {});
     }
   }, []);
 
@@ -415,7 +416,7 @@ export default function App() {
           <Tooltip label="Drag to move">
             <button
               className="toolbar-icon-btn cursor-move drag-region"
-              onMouseDown={() => getCurrentWindow().startDragging().catch(() => {})}
+              onMouseDown={() => { if (isTauri()) getCurrentWindow().startDragging().catch(() => {}); }}
             >
               <GripVertical className="h-4 w-4" />
             </button>

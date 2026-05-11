@@ -14,3 +14,12 @@ export function getPlatform(): Platform {
 export const isMac = getPlatform() === "macos";
 export const isWindows = getPlatform() === "windows";
 export const isLinux = getPlatform() === "linux";
+
+/**
+ * Returns true when running inside the Tauri WebView.
+ * In a plain browser (e.g. localhost:1420 during dev) this is false,
+ * so all Tauri API calls should be guarded with this check.
+ */
+export function isTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}

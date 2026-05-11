@@ -1,5 +1,4 @@
 import { client, isAppwriteConfigured } from "./client";
-import { invoke } from "@tauri-apps/api/core";
 import { getActiveSession } from "./auth";
 import { fetchRemoteUsage, fetchRemotePlan } from "./sync-profiles";
 import { fetchRemoteConversations, syncConversation } from "./sync-conversations";
@@ -102,33 +101,19 @@ export async function runStartupSync(): Promise<void> {
     console.warn("[Sync] Plan sync failed:", e);
   }
 
-  // 2. Sync usage — bidirectional reconciliation.
-  // Appwrite stores *used* counts (0 → N). Local stats also count upward.
-  // Ratchet: always take the higher used count between local and remote so
-  // neither side can "forget" usage that was recorded elsewhere.
+  // 2. Sync usage — Appwrite is the source of truth.
+  // Admin changes in the Appwrite Console (reset, adjust) take effect on the
+  // next app open because we always overwrite local with the remote value here.
+  // During an active session, record_usage() writes to Appwrite every second,
+  // so there is negligible unsynchronized local data between sessions.
   try {
     const remoteUsage = await fetchRemoteUsage(userId);
     if (remoteUsage) {
       const stats = loadUsageStats();
-
-      // Take the max of local and remote — never discard usage recorded on either side
-      const syncedAi = Math.max(stats.aiResponses, remoteUsage.aiResponsesUsed);
-      const syncedListening = Math.max(stats.listeningSeconds, remoteUsage.listeningSecondsUsed);
-
-      // If local is ahead of remote, push via Rust (API key) so Appwrite catches up.
-      // Users cannot forge increments by calling this directly — Rust validates the ratchet.
-      if (syncedAi > remoteUsage.aiResponsesUsed || syncedListening > remoteUsage.listeningSecondsUsed) {
-        invoke("push_local_usage", {
-          userId,
-          aiUsed: syncedAi,
-          listeningUsed: syncedListening,
-        }).catch((e: unknown) => console.warn("[Sync] push_local_usage failed:", e));
-      }
-
-      stats.aiResponses = syncedAi;
-      stats.listeningSeconds = syncedListening;
+      stats.aiResponses = remoteUsage.aiResponsesUsed;
+      stats.listeningSeconds = remoteUsage.listeningSecondsUsed;
       saveUsageStats(stats);
-      console.log("[Sync] Usage reconciled — AI used:", stats.aiResponses, "/ listening:", Math.round(stats.listeningSeconds / 60), "min");
+      console.log("[Sync] Usage loaded from Appwrite — AI used:", stats.aiResponses, "/ listening:", Math.round(stats.listeningSeconds / 60), "min");
     }
   } catch (e) {
     console.warn("[Sync] Usage sync failed:", e);

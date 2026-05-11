@@ -13,7 +13,7 @@ import { PLAN_LIMITS } from "@/config/constants";
 import type { UserProfile, UsageStats } from "@/types/settings";
 import { logout } from "@/lib/appwrite";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauri } from "@/lib/platform";
 import {
   MessageSquare,
   Layers,
@@ -97,15 +97,17 @@ export default function Dashboard() {
     loadData();
 
     // Reload data whenever the window regains focus.
-    // This covers the case where the user signs out, then signs back in —
-    // the dashboard is re-shown and its data must reflect the new session.
     let unlisten: (() => void) | undefined;
-    getCurrentWindow()
-      .onFocusChanged(({ payload: focused }) => {
-        if (focused) loadData();
-      })
-      .then((fn) => { unlisten = fn; })
-      .catch(() => {});
+    if (isTauri()) {
+      import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
+        getCurrentWindow()
+          .onFocusChanged(({ payload: focused }) => {
+            if (focused) loadData();
+          })
+          .then((fn) => { unlisten = fn; })
+          .catch(() => {})
+      );
+    }
 
     // Poll usage stats every 1 s — the pill bar (separate Tauri window) updates
     // localStorage every second while listening/capturing, but storage events don't
