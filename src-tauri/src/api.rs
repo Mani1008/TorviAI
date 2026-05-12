@@ -41,32 +41,44 @@ const ALLOWED_IMAGE_PREFIXES: &[&str] = &[
 /// All model IDs that may be requested from the frontend.
 /// Any unlisted model string is rejected to prevent premium-model substitution.
 const ALLOWED_MODELS: &[&str] = &[
-    // OpenRouter — General / Fast
+    // ── NVIDIA NIM models (routed to integrate.api.nvidia.com) ─────────────
     "meta/llama-4-scout-17b-16e-instruct",
     "meta/llama-4-maverick-17b-128e-instruct",
+    "meta/llama-3.2-11b-vision-instruct",
+    "meta/llama-3.2-90b-vision-instruct",
+    "google/gemma-4-31b-it",
+    "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "mistralai/mistral-small-3.1-24b-instruct",
+
+    // ── OpenRouter — Free tier (no billing needed, `:free` suffix) ──────────
+    "google/gemini-2.0-flash-exp:free",
+    "meta-llama/llama-4-maverick:free",
+    "deepseek/deepseek-r1:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+
+    // ── OpenRouter — General / Fast ─────────────────────────────────────────
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+    "anthropic/claude-3.7-sonnet",
+    "anthropic/claude-3.5-haiku",
+    "google/gemini-flash-1.5",
+    "google/gemini-pro-1.5",
+    "meta-llama/llama-3.3-70b-instruct",
     "meta/llama-3.3-70b-instruct",
     "meta/llama-3.1-8b-instruct",
     "google/gemma-3-27b-it",
     "google/gemma-3-9b-it",
-    "mistralai/mistral-small-3.1-24b-instruct",
     "mistralai/mistral-7b-instruct",
     "qwen/qwen-2.5-72b-instruct",
     "qwen/qwen-2.5-coder-32b-instruct",
     "deepseek/deepseek-r1",
     "deepseek/deepseek-v3",
-    // OpenRouter — Role-based models (selected automatically by interview type)
+
+    // ── OpenRouter — Coding / Reasoning ────────────────────────────────────
     "anthropic/claude-3.7-sonnet:thinking",
-    "anthropic/claude-3.7-sonnet",
-    "anthropic/claude-3.5-haiku",
     "deepseek/deepseek-chat-v3-0324",
     "openai/o4-mini",
-    "openai/gpt-4o",
-    "google/gemini-pro-1.5",
-    // NVIDIA NIM models
-    "meta/llama-3.2-11b-vision-instruct",
-    "meta/llama-3.2-90b-vision-instruct",
-    "google/gemma-4-31b-it",
-    "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "openai/o3",
 ];
 
 /// Locked system prefix prepended by Rust before the user-supplied system_prompt.

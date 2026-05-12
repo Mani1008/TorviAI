@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
-import { MessageSquare, Clock } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import type { ChatConversation } from "@/types/completion";
 import type { ContextChunk } from "@/lib/database/context-store";
 
@@ -10,7 +10,7 @@ interface ActivityItem {
   title: string;
   subtitle: string;
   timestamp: number;
-  href?: string;
+  href: string;
 }
 
 interface Props {
@@ -30,30 +30,24 @@ function relativeTime(ts: number): string {
 }
 
 const CONTENT_TYPE_LABELS: Record<string, string> = {
-  code: "Coding",
-  document: "Document",
-  email: "Email",
-  chat: "Chat",
-  meeting: "Meeting",
-  project_management: "Project",
-  browser: "Browser",
-  generic: "App",
+  code: "Coding", document: "Document", email: "Email", chat: "Chat",
+  meeting: "Meeting", project_management: "Project", browser: "Browser", generic: "App",
 };
 
 export function RecentActivityFeed({ conversations, contextChunks }: Props) {
   const navigate = useNavigate();
 
   const items: ActivityItem[] = useMemo(() => {
-    const chatItems: ActivityItem[] = conversations.slice(0, 6).map((c) => ({
+    const chatItems: ActivityItem[] = conversations.slice(0, 5).map((c) => ({
       id: `chat-${c.id}`,
       type: "chat",
       title: c.title,
-      subtitle: `${c.messages.length > 0 ? `${c.messages.length} message${c.messages.length !== 1 ? "s" : ""}` : "No messages"}`,
+      subtitle: c.messages.length > 0 ? `${c.messages.length} messages` : "No messages",
       timestamp: c.updatedAt,
       href: `/chats?id=${c.id}`,
     }));
 
-    const ctxItems: ActivityItem[] = contextChunks.slice(0, 6).map((ch) => ({
+    const ctxItems: ActivityItem[] = contextChunks.slice(0, 4).map((ch) => ({
       id: `ctx-${ch.id}`,
       type: "context",
       title: ch.window_title.split(" - ")[0].trim().slice(0, 60),
@@ -64,56 +58,52 @@ export function RecentActivityFeed({ conversations, contextChunks }: Props) {
 
     return [...chatItems, ...ctxItems]
       .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, 8);
+      .slice(0, 7);
   }, [conversations, contextChunks]);
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-10 text-center text-muted-foreground">
-        <MessageSquare className="mb-2 h-8 w-8 opacity-30" />
-        <p className="text-sm font-medium">No recent activity</p>
-        <p className="text-xs mt-1 opacity-70">Start a conversation or wait for context to be captured</p>
-      </div>
+      <p className="py-4 text-center text-sm text-muted-foreground/50">
+        No recent activity yet
+      </p>
     );
   }
 
   return (
-    <div className="space-y-1.5">
-      {items.map((item) => (
+    <div>
+      {items.map((item, i) => (
         <button
           key={item.id}
-          onClick={() => item.href && navigate(item.href)}
-          className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-left hover:border-border hover:bg-accent/50 transition-all"
+          onClick={() => navigate(item.href)}
+          className={`group flex w-full items-center gap-3 py-2.5 text-left transition-colors hover:bg-muted/40 rounded-lg px-2 -mx-2 ${
+            i !== 0 ? "border-t border-border/30" : ""
+          }`}
         >
-          {/* Icon */}
+          {/* tiny type dot */}
           <div
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-              item.type === "chat"
-                ? "bg-primary/10 text-primary"
-                : "bg-muted text-muted-foreground"
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+              item.type === "chat" ? "bg-primary/60" : "bg-muted-foreground/30"
             }`}
-          >
-            {item.type === "chat" ? (
-              <MessageSquare className="h-3.5 w-3.5" />
-            ) : (
-              <Clock className="h-3.5 w-3.5" />
-            )}
-          </div>
+          />
 
-          {/* Text */}
+          {/* text */}
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium leading-tight group-hover:text-foreground">
-              {item.title}
+            <p className="truncate text-sm leading-tight">{item.title}</p>
+            <p className="truncate text-xs text-muted-foreground/50 mt-0.5">
+              {item.subtitle}
             </p>
-            <p className="text-xs text-muted-foreground/70 mt-0.5">{item.subtitle}</p>
           </div>
 
-          {/* Timestamp */}
-          <span className="shrink-0 text-xs text-muted-foreground/50">
-            {relativeTime(item.timestamp)}
-          </span>
+          {/* timestamp + hover arrow */}
+          <div className="shrink-0 flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground/40">
+              {relativeTime(item.timestamp)}
+            </span>
+            <ArrowRight className="h-3 w-3 text-muted-foreground/0 group-hover:text-muted-foreground/40 transition-colors" />
+          </div>
         </button>
       ))}
     </div>
   );
 }
+

@@ -291,11 +291,12 @@ pub async fn open_dashboard(app: AppHandle) -> Result<(), String> {
     let url = WebviewUrl::App("/dashboard".into());
     let builder = tauri::WebviewWindowBuilder::new(&app, "dashboard", url)
         .title("AI Assistant - Dashboard")
-        .inner_size(900.0, 680.0)
-        .min_inner_size(700.0, 500.0)
+        .inner_size(960.0, 700.0)
+        .min_inner_size(720.0, 520.0)
         .center()
         .visible(false)
         .decorations(false)
+        .resizable(true)
         .content_protected(false);
 
     let window = builder.build().map_err(|e| e.to_string())?;
