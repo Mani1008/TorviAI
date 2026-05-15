@@ -1,9 +1,12 @@
 //! Background app-context watcher.
 //!
-//! Polls the foreground window every 5 seconds via `screen_reader`, applies the
-//! privacy filter, deduplicates by content hash, and emits a `context-captured`
-//! Tauri event.  The TypeScript layer receives these events and writes the chunks
-//! to the local SQLite `context_chunks` table.
+//! Polls the foreground window every 2 seconds via `screen_reader`, applies the
+//! privacy filter, deduplicates by content hash, emits a `context-captured`
+//! Tauri event, and writes the chunks directly to SQLite via `context_db`.
+//!
+//! The Rust-side write (via `context_db::ContextDb`) bypasses the
+//! `tauri-plugin-sql` JavaScript IPC path, which was found to silently drop
+//! all INSERT OR REPLACE statements (execute() resolved with rowsAffected=0).
 
 use sha2::{Digest, Sha256};
 use std::sync::{
@@ -107,6 +110,21 @@ pub fn get_watcher_status(state: tauri::State<'_, AppContextState>) -> &'static 
 /// Both triggers feed into a single capture/emit path.
 #[cfg(target_os = "windows")]
 async fn run_watcher_loop(running: Arc<AtomicBool>, app: AppHandle) {
+    // Open our own sqlx pool for direct writes — bypasses tauri-plugin-sql IPC.
+    let ctx_db = match crate::context_db::ContextDb::open(&app).await {
+        Ok(db) => {
+            log::info!("[ContextWatcher] Rust-side context DB ready.");
+            db
+        }
+        Err(e) => {
+            log::error!("[ContextWatcher] Failed to open context DB — saves disabled: {e}");
+            // Still run the watcher (events still emitted for live counter), just no saves.
+            // We reset running so the watchdog can restart and retry DB open later.
+            running.store(false, Ordering::SeqCst);
+            return;
+        }
+    };
+
     // Channel: WinEvent thread → async loop (capacity 4 is plenty; we only need
     // one pending signal at a time — extras are coalesced by the debounce below).
     let (tx, mut rx) = mpsc::channel::<()>(4);
@@ -122,24 +140,37 @@ async fn run_watcher_loop(running: Arc<AtomicBool>, app: AppHandle) {
 
     let filter = PrivacyFilter::new();
     let mut last_hash = String::new();
+    // Track when we last emitted so we can force a re-emit after STALE_SECS even
+    // if the visible content hash has not changed.  Without this the watcher
+    // never re-captures a document the user is passively reading, and the context
+    // shown in the UI stays stale for the entire session.
+    let mut last_emit_at: Option<std::time::Instant> = None;
+    /// Re-emit the same content hash after this many seconds of no change.
+    /// Must be longer than the TypeScript 5-min dedup window (300 s) so the
+    /// duplicate-hash guard in saveContextChunk does not block the save.
+    const STALE_SECS: u64 = 360; // 6 minutes
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
     // Don't fire immediately on start — wait for the first tick.
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
-        // Wait for whichever comes first: a WinEvent signal or the 5-second timer.
+        // Wait for whichever comes first: a WinEvent signal or the 2-second timer.
+        // Track the trigger source so we can apply different dedup rules:
+        //   WinEvent  → user switched window → ALWAYS re-capture (content may differ)
+        //   Timer     → same window, same possible content → skip if hash unchanged
+        let triggered_by_winevent: bool;
         tokio::select! {
-            _ = rx.recv() => {
-                // Window switched — debounce so the new window has time to
-                // paint and its UIAutomation tree stabilises.
-                // 300 ms is enough for the shell to complete the focus transition;
-                // shorter values capture mid-render garbage on slower machines.
+            result = rx.recv() => {
+                if result.is_none() { break; } // channel closed
+                triggered_by_winevent = true;
+                // Debounce so the new window has time to paint and its
+                // UIAutomation tree stabilises.
                 tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
                 // Drain any extra signals that piled up during the debounce.
                 while rx.try_recv().is_ok() {}
             }
             _ = interval.tick() => {
-                // Periodic timer — capture even if no focus change occurred.
+                triggered_by_winevent = false;
             }
         }
 
@@ -171,6 +202,34 @@ async fn run_watcher_loop(running: Arc<AtomicBool>, app: AppHandle) {
         let raw = filter.redact_sensitive(&ctx.text_content);
         let text = clean_captured_text(&raw);
 
+        // Google Docs (and Google Slides/Sheets in editing mode) render their
+        // document content on a <canvas> element that is completely invisible to
+        // UIAutomation unless the user enables screen reader mode (Ctrl+Alt+Z).
+        // Without that mode, the only accessible elements are the toolbar widgets
+        // (title bar, zoom %, font size) — typically < 100 meaningful chars.
+        // Saving these near-empty captures wastes DB space and pollutes BM25 ranking.
+        // Skip them and emit a dedicated event so the UI can prompt the user.
+        let url_str = ctx.url.as_deref().unwrap_or("");
+        let is_google_workspace = url_str.contains("docs.google.com/document")
+            || url_str.contains("docs.google.com/spreadsheets")
+            || url_str.contains("docs.google.com/presentation");
+        if is_google_workspace {
+            let meaningful_chars = text.chars()
+                .filter(|c| c.is_alphanumeric())
+                .count();
+            if meaningful_chars < 150 {
+                log::debug!(
+                    "[ContextWatcher] Google Workspace detected but content inaccessible \
+                     ({} alphanumeric chars) — emitting screen-reader nudge.",
+                    meaningful_chars
+                );
+                // Emit a typed event so every open Torvi window can show
+                // a contextual prompt to enable screen reader mode.
+                let _ = app.emit("google-docs-needs-screen-reader", url_str.to_string());
+                continue;
+            }
+        }
+
         if text.trim().len() < 20 {
             continue;
         }
@@ -182,9 +241,30 @@ async fn run_watcher_loop(running: Arc<AtomicBool>, app: AppHandle) {
         };
 
         if hash == last_hash {
-            continue;
+            if triggered_by_winevent {
+                // Window switch: the user moved to a different app/file.
+                // Even if text is identical, always re-emit so the UI shows
+                // a fresh timestamp.  This is the most common "stuck" case:
+                // user works in VS Code → switches to Torvi → switches back
+                // → same hash → previously skipped forever.
+                log::debug!("[ContextWatcher] WinEvent with same hash — force re-emit on window switch.");
+            } else {
+                // Timer trigger with unchanged content.
+                // Only re-emit once the content has been stale for STALE_SECS.
+                let is_stale = last_emit_at
+                    .map(|t| t.elapsed().as_secs() >= STALE_SECS)
+                    .unwrap_or(false);
+                if !is_stale {
+                    continue;
+                }
+                log::debug!(
+                    "[ContextWatcher] Timer: same hash for {}s — force re-emit.",
+                    STALE_SECS
+                );
+            }
         }
         last_hash = hash.clone();
+        last_emit_at = Some(std::time::Instant::now());
 
         let parsed_title = parse_window_title(&ctx.app_name, &ctx.window_title);
         let content_type =
@@ -202,10 +282,30 @@ async fn run_watcher_loop(running: Arc<AtomicBool>, app: AppHandle) {
 
         if let Err(e) = app.emit("context-captured", &snapshot) {
             log::warn!("[ContextWatcher] Failed to emit context-captured: {e}");
+        } else {
+            log::info!("[ContextWatcher] Emitted context-captured: {} — {}", snapshot.app_name, snapshot.window_title);
+        }
+
+        // ── Rust-side save ────────────────────────────────────────────────
+        // Write directly to SQLite via our own sqlx pool, bypassing the
+        // tauri-plugin-sql JavaScript IPC path that silently drops writes.
+        let saved = ctx_db.save_snapshot(&snapshot).await;
+        if saved > 0 {
+            // Notify all webview windows that new chunks are available.
+            if let Err(e) = app.emit("context-chunks-saved", ()) {
+                log::warn!("[ContextWatcher] emit context-chunks-saved: {e}");
+            }
         }
     }
 
-    log::info!("[ContextWatcher] Loop exited.");
+    // Always reset running to false when the loop exits for ANY reason.
+    // This is critical: if the WinEvent pump thread dies (hook fails, thread
+    // panics, etc.), the channel closes, rx.recv() returns None, and we break
+    // here — but `running` would stay true if we didn't reset it.  With running
+    // stuck at true, start_context_watcher's CAS(false→true) always fails, the
+    // watchdog can never restart the watcher, and no events are ever emitted again.
+    running.store(false, Ordering::SeqCst);
+    log::info!("[ContextWatcher] Loop exited — running reset to false.");
 }
 
 // ─── WinEvent message pump ────────────────────────────────────────────────────
@@ -240,7 +340,15 @@ fn winevent_message_pump(tx: mpsc::Sender<()>, running: Arc<AtomicBool>) {
     };
 
     if hook.is_invalid() {
-        log::warn!("[ContextWatcher] SetWinEventHook failed — falling back to timer-only mode.");
+        log::warn!("[ContextWatcher] SetWinEventHook failed — running in timer-only mode.");
+        // DO NOT drop the sender or return here.  If we drop `tx` (via TX_SLOT.take()
+        // + return), the channel closes, rx.recv() returns None in the async loop,
+        // and the loop breaks — killing timer-based captures too.  Instead, stay
+        // alive in a simple sleep loop so the sender in TX_SLOT is kept alive and
+        // the async loop can continue firing on its 2-second interval.
+        while running.load(Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
         TX_SLOT.with(|slot| slot.borrow_mut().take());
         return;
     }
@@ -307,9 +415,11 @@ async fn run_watcher_loop(running: Arc<AtomicBool>, _app: AppHandle) {
 
 // ─── Text cleaning ────────────────────────────────────────────────────────────
 
-/// VS Code Source Control sidebar headings / UI labels that pollute captures.
-/// Matched as exact-trimmed lines (case-sensitive).
-const VSCODE_NOISE_LINES: &[&str] = &[
+/// Exact-match strings that are pure UI chrome — never worth capturing.
+/// Covers VS Code sidebar labels, common web nav, chat app controls, etc.
+/// Matched as exact trimmed lines (case-sensitive).
+const UI_NOISE_LINES: &[&str] = &[
+    // ── VS Code sidebar / panel labels ────────────────────────────────────────
     "CHANGES",
     "STAGED CHANGES",
     "MERGE CHANGES",
@@ -338,6 +448,110 @@ const VSCODE_NOISE_LINES: &[&str] = &[
     "The editor is not accessible at this time. To enable screen reader optimized mode, use Shift+Alt+F1",
     "Terminal input",
     "Use Alt+F1 for terminal accessibility help",
+    "OUTLINE",
+    "TIMELINE",
+    "NPM SCRIPTS",
+    "BREAKPOINTS",
+    "CALL STACK",
+    "VARIABLES",
+    "WATCH",
+    "LOADED SCRIPTS",
+    // ── Generic app navigation / chrome labels ────────────────────────────────
+    "New Chat",
+    "New chat",
+    "New Tab",
+    "New tab",
+    "Close",
+    "Minimize",
+    "Maximize",
+    "Restore",
+    "Back",
+    "Forward",
+    "Reload",
+    "Stop",
+    "Home",
+    "Settings",
+    "Help",
+    "About",
+    "Menu",
+    "Navigation",
+    "Sidebar",
+    "Toolbar",
+    "More options",
+    "More Options",
+    "Open",
+    "Save",
+    "Cancel",
+    "Done",
+    "Submit",
+    "OK",
+    "Yes",
+    "No",
+    // ── Chat / AI assistant UI ────────────────────────────────────────────────
+    "Chats",
+    "Projects",
+    "Artifacts",
+    "Customize",
+    "Free plan",
+    "Upgrade",
+    "Dismiss",
+    "Dismiss upgrade banner",
+    "Sign in",
+    "Sign out",
+    "Log in",
+    "Log out",
+    "Continue with Google",
+    "Continue with GitHub",
+    "Send message",
+    "Type a message",
+    "Attach",
+    "Attach file",
+    "Voice",
+    "Stop generating",
+    "Regenerate",
+    "Copy code",
+    "Like",
+    "Dislike",
+    "Thumbs up",
+    "Thumbs down",
+    "Share",
+    "Export",
+    "Delete",
+    "Archive",
+    "Rename",
+    // ── Browser chrome ────────────────────────────────────────────────────────
+    "Address and search bar",
+    "Search or type a URL",
+    "New window",
+    "New incognito window",
+    "Bookmarks",
+    "History",
+    "Downloads",
+    "Print",
+    "Find",
+    "Zoom in",
+    "Zoom out",
+    "Reset zoom",
+    "Full screen",
+    "Mute tab",
+    "Pin tab",
+    "Duplicate tab",
+    "Close tab",
+    "Reopen closed tab",
+    // ── Google Docs / Google Workspace UI chrome ─────────────────────────────────
+    "Menus",
+    "Document content",
+    "Banner hidden",
+    "Move",
+    "Editing",
+    "Show tabs & outlines",
+    "Turn on screen reader support",
+    "To enable screen reader support, press Ctrl+Alt+Z To learn about keyboard shortcuts, press Ctrl+slash",
+    "Paint format",
+    "Insert image",
+    "Align & indent",
+    "Line & paragraph spacing",
+    "FileEditViewInsertFormatToolsExtensionsHelp",
 ];
 
 /// Clean up raw UIAutomation-captured text before storing in the context DB.
@@ -389,8 +603,40 @@ fn clean_captured_text(raw: &str) -> String {
             continue;
         }
 
-        // Skip known VS Code UI noise strings
-        if VSCODE_NOISE_LINES.iter().any(|noise| trimmed == *noise) {
+        // Skip pure-number / numeric-metric lines.
+        // Covers: badge counts ("3", "12", "99+"), timestamps ("09:41"),
+        // zoom percentages ("100%"), font sizes ("10.5"), version numbers ("3.2.1").
+        // Characters allowed: digits, +, :, ,, ., %, /, ° (degree sign)
+        if trimmed.chars().all(|c| c.is_numeric()
+            || c == '+' || c == ':' || c == ','
+            || c == '.' || c == '%' || c == '/'
+            || c == '°') {
+            continue;
+        }
+
+        // Skip known UI noise strings (VS Code labels, web nav, chat chrome)
+        if UI_NOISE_LINES.iter().any(|noise| trimmed == *noise) {
+            continue;
+        }
+
+        // Skip keyboard-shortcut tooltip lines — the signature pattern of Google Docs
+        // toolbar labels and other web-app menus: "Action name (Ctrl+Key)".
+        // These are pure chrome: the user never needs them in AI context.
+        // Match: line ends with ')' AND contains a shortcut marker.
+        if trimmed.ends_with(')')
+            && (trimmed.contains("(Ctrl+")
+                || trimmed.contains("(Ctrl-")
+                || trimmed.contains("(Ctrl+Alt+")
+                || trimmed.contains("(Ctrl+Shift+")
+                || trimmed.contains("(Alt+"))
+        {
+            continue;
+        }
+
+        // Skip ARIA state-description lines appended by web apps to name interactive
+        // elements: "Styles list. Normal text selected.", "Font list. Roboto selected."
+        // These come from <select> / combobox accessibility names.
+        if trimmed.ends_with(" selected.") || trimmed.ends_with(" selected") {
             continue;
         }
 
@@ -551,32 +797,100 @@ fn parse_window_title(app_name: &str, title: &str) -> String {
 /// Classify the content type based on app name, parsed window title, and optional URL.
 fn classify_context(app_name: &str, title: &str, url: Option<&str>) -> &'static str {
     if let Some(u) = url {
-        if u.contains("mail.google.com") || u.contains("outlook.live.com") {
+        // ── Email ────────────────────────────────────────────────────────────
+        if u.contains("mail.google.com")
+            || u.contains("outlook.live.com")
+            || u.contains("outlook.office.com")
+            || u.contains("outlook.office365.com")
+            || u.contains("mail.yahoo.com")
+            || u.contains("proton.me/mail")
+            || u.contains("fastmail.com")
+            || u.contains("hey.com")
+        {
             return "email";
         }
+
+        // ── Project management ───────────────────────────────────────────────
         if u.contains("linear.app")
             || u.contains("jira.atlassian")
+            || u.contains("atlassian.net")
             || u.contains("trello.com")
             || u.contains("asana.com")
+            || u.contains("monday.com")
+            || u.contains("clickup.com")
+            || u.contains("basecamp.com")
+            || u.contains("airtable.com")
+            || u.contains("height.app")
+            || u.contains("shortcut.com")
+            || u.contains("pivotaltracker.com")
         {
             return "project_management";
         }
+
+        // ── Documents / knowledge bases ──────────────────────────────────────
         if u.contains("notion.so")
             || u.contains("docs.google.com")
             || u.contains("confluence")
+            || u.contains("coda.io")
+            || u.contains("craft.do")
+            || u.contains("roamresearch.com")
+            || u.contains("obsidian.md")
+            || u.contains("dropbox.com/scl")
+            || u.contains("quip.com")
+            || u.contains("slite.com")
         {
             return "document";
         }
-        if u.contains("github.com") || u.contains("gitlab.com") || u.contains("bitbucket.org") {
+
+        // ── Code / dev tooling ───────────────────────────────────────────────
+        if u.contains("github.com")
+            || u.contains("gitlab.com")
+            || u.contains("bitbucket.org")
+            || u.contains("stackoverflow.com")
+            || u.contains("developer.mozilla.org")
+            || u.contains("mdn.web.dev")
+            || u.contains("npmjs.com")
+            || u.contains("crates.io")
+            || u.contains("pkg.go.dev")
+            || u.contains("docs.rs")
+            || u.contains("codesandbox.io")
+            || u.contains("codepen.io")
+            || u.contains("replit.com")
+            || u.contains("vercel.com")
+            || u.contains("render.com")
+        {
             return "code";
         }
+
+        // ── Design ───────────────────────────────────────────────────────────
+        if u.contains("figma.com")
+            || u.contains("miro.com")
+            || u.contains("figjam.com")
+            || u.contains("whimsical.com")
+            || u.contains("lucid.app")
+            || u.contains("canva.com")
+        {
+            return "document";
+        }
+
+        // ── Meetings ─────────────────────────────────────────────────────────
         if u.contains("meet.google.com")
             || u.contains("teams.microsoft.com")
             || u.contains("zoom.us")
+            || u.contains("webex.com")
+            || u.contains("whereby.com")
+            || u.contains("around.co")
         {
             return "meeting";
         }
-        if u.contains("slack.com") || u.contains("discord.com") {
+
+        // ── Chat ─────────────────────────────────────────────────────────────
+        if u.contains("slack.com")
+            || u.contains("discord.com")
+            || u.contains("web.whatsapp.com")
+            || u.contains("telegram.org")
+            || u.contains("messages.google.com")
+        {
             return "chat";
         }
     }
@@ -596,24 +910,37 @@ fn classify_context(app_name: &str, title: &str, url: Option<&str>) -> &'static 
                 "chat"
             }
         }
-        a if a.contains("slack") || a.contains("discord") => "chat",
+        a if a.contains("slack") || a.contains("discord") || a.contains("whatsapp") => "chat",
         a if a.contains("winword")
             || a.contains("notion")
             || a.contains("obsidian")
-            || a.contains("onenote") =>
+            || a.contains("onenote")
+            || a.contains("excel")
+            || a.contains("powerpnt") =>
         {
             "document"
         }
         a if a.contains("code")
+            || a.contains("cursor")
             || a.contains("rider")
             || a.contains("idea")
+            || a.contains("pycharm")
+            || a.contains("webstorm")
+            || a.contains("clion")
+            || a.contains("goland")
             || a.contains("studio")
-            || a.contains("sublime") =>
+            || a.contains("sublime")
+            || a.contains("vim")
+            || a.contains("nvim")
+            || a.contains("emacs") =>
         {
             "code"
         }
-        a if a.contains("zoom") || a.contains("webex") => "meeting",
-        a if a.contains("outlook") || a.contains("thunderbird") => "email",
+        a if a.contains("zoom") || a.contains("webex") || a.contains("whereby") => "meeting",
+        a if a.contains("outlook") || a.contains("thunderbird") || a.contains("mailspring") => {
+            "email"
+        }
+        a if a.contains("figma") || a.contains("miro") || a.contains("canva") => "document",
         _ => "generic",
     }
 }

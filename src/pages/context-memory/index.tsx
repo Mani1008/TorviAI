@@ -50,8 +50,14 @@ export default function ContextMemory() {
   const [expanded, setExpanded]       = useState<Set<string>>(new Set());
   const [liveCount, setLiveCount]     = useState(0);
   const [isWatching, setIsWatching]   = useState(false);
+  // Initialised from actual Rust watcher status — see mount effect below.
   const [isPaused, setIsPaused]       = useState(false);
   const unlistenRef                   = useRef<(() => void) | null>(null);
+  // Shown when user is on Google Docs without screen reader mode enabled.
+  const [showDocsNudge, setShowDocsNudge] = useState(false);
+
+  // ── Key for user's explicit pause intent (survives HMR re-renders) ─────────
+  const PAUSE_KEY = "ctx_watcher_paused";
 
   // ── Load from DB ───────────────────────────────────────────────────────────
   const loadChunks = async () => {
@@ -69,41 +75,108 @@ export default function ContextMemory() {
     loadChunks();
   }, []);
 
+  // ── Sync isPaused with actual Rust watcher state on mount ─────────────────
+  // The component re-mounts on navigation (isPaused resets to false) but the
+  // Rust watcher might still be stopped. We read the real status here so the
+  // UI is truthful, and we auto-restart if the watcher stopped due to an HMR
+  // re-render (not because the user deliberately paused it).
+  useEffect(() => {
+    invoke<string>("get_watcher_status")
+      .then((s) => {
+        if (s === "running") {
+          setIsPaused(false);
+          setIsWatching(true);
+        } else {
+          // If the user deliberately paused, respect that. Otherwise restart.
+          const userPaused = sessionStorage.getItem(PAUSE_KEY) === "1";
+          if (!userPaused) {
+            // Watcher stopped for a non-deliberate reason (HMR, crash, etc.).
+            // Restart it automatically.
+            invoke("start_context_watcher").catch(console.error);
+            setIsPaused(false);
+            setIsWatching(true);
+          } else {
+            setIsPaused(true);
+            setIsWatching(false);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // ── Focus reload — re-fetch DB whenever the Tauri window regains focus ─────
+  // This ensures chunks captured while the user was on another app appear
+  // immediately when they switch back to Torvi, without needing to click Refresh.
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      getCurrentWindow()
+        .onFocusChanged(({ payload: focused }) => { if (focused) loadChunks(); })
+        .then((fn) => { cleanup = fn; })
+        .catch(() => {});
+    });
+    return () => cleanup?.();
+  }, []);
+
   // ── Live listener ──────────────────────────────────────────────────────────
+  // Two separate signals:
+  //   "context-captured"     (Tauri event)  — fires immediately when Rust emits;
+  //                                           used ONLY to increment the session
+  //                                           counter and light the "Watching" dot.
+  //   "context-chunks-saved" (CustomEvent)  — dispatched by saveContextChunk()
+  //                                           AFTER all sub-chunks are committed
+  //                                           to SQLite.  This is when we reload.
+  // Splitting the two signals eliminates the debounce race entirely.
   useEffect(() => {
     let cancelled = false;
 
-    listen<AppContextSnapshot>("context-captured", ({ payload }) => {
+    // Counter + indicator (no DB read needed yet).
+    listen<AppContextSnapshot>("context-captured", () => {
       if (cancelled) return;
       setLiveCount((n) => n + 1);
       setIsWatching(true);
-
-      // Prepend into the local list so the page updates without a full reload.
-      const newChunk: ContextChunk = {
-        id:           crypto.randomUUID(),
-        app_name:     payload.app_name,
-        window_title: payload.window_title,
-        content_type: payload.content_type,
-        text_content: payload.text_content,
-        content_hash: payload.content_hash,
-        captured_at:  payload.captured_at,
-        url:          payload.url,
-      };
-      setChunks((prev) => [newChunk, ...prev].slice(0, 100));
     }).then((unlisten) => {
-      if (cancelled) {
-        unlisten();
-      } else {
-        unlistenRef.current = unlisten;
-        setIsWatching(true);
-      }
+      if (cancelled) { unlisten(); }
+      else { unlistenRef.current = unlisten; setIsWatching(true); }
     });
+
+    // Safe reload — all INSERTs are done by the time this fires.
+    // Use Tauri listen() (not window.addEventListener) because saveContextChunk
+    // runs in the 'main' window and emits via Tauri IPC; DOM CustomEvents don't
+    // cross WebView boundaries so window.addEventListener would never fire here.
+    let unlistenSaved: (() => void) | null = null;
+    listen<void>("context-chunks-saved", () => {
+      if (!cancelled) loadChunks();
+    }).then((fn) => {
+      if (cancelled) { fn(); }
+      else { unlistenSaved = fn; }
+    }).catch(console.error);
+
+    // Google Docs screen-reader nudge — fires when the user is on a Google Docs
+    // URL and the document content is inaccessible (canvas-rendered).
+    let unlistenDocsNudge: (() => void) | null = null;
+    listen<string>("google-docs-needs-screen-reader", () => {
+      if (!cancelled) setShowDocsNudge(true);
+    }).then((fn) => {
+      if (cancelled) { fn(); }
+      else { unlistenDocsNudge = fn; }
+    }).catch(console.error);
 
     return () => {
       cancelled = true;
       unlistenRef.current?.();
       unlistenRef.current = null;
+      unlistenSaved?.();
+      unlistenDocsNudge?.();
     };
+  }, []);
+
+  // ── Periodic refresh ──────────────────────────────────────────────────────
+  // Refresh every 30 s so "X ago" labels stay accurate and any capture that
+  // slipped through the event listener (e.g. race condition, paused state) shows up.
+  useEffect(() => {
+    const interval = setInterval(() => loadChunks(), 30_000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── Prune + reload ─────────────────────────────────────────────────────────
@@ -116,10 +189,12 @@ export default function ContextMemory() {
   const handleTogglePause = async () => {
     if (isPaused) {
       await invoke("start_context_watcher").catch(console.error);
+      sessionStorage.removeItem(PAUSE_KEY); // user chose to resume
       setIsPaused(false);
       setIsWatching(true);
     } else {
       await invoke("stop_context_watcher").catch(console.error);
+      sessionStorage.setItem(PAUSE_KEY, "1"); // remember user's deliberate choice
       setIsPaused(true);
       setIsWatching(false);
     }
@@ -234,6 +309,39 @@ export default function ContextMemory() {
             </div>
           </div>
         </div>
+
+        {/* ── Google Docs screen-reader nudge (shown only when Docs is active and inaccessible) ── */}
+        {showDocsNudge && (
+          <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
+            <div className="flex items-start gap-3">
+              <span className="text-yellow-400 mt-0.5 shrink-0 text-base">⚠️</span>
+              <div className="flex-1 space-y-1">
+                <p className="font-medium text-yellow-300">Google Docs detected — content is inaccessible</p>
+                <p className="text-muted-foreground text-xs leading-relaxed">
+                  Google Docs renders document text on a canvas, which is invisible to accessibility APIs.
+                  Enable screen reader mode so Torvi can read your document content.
+                </p>
+                <p className="text-xs mt-2">
+                  Press{" "}
+                  <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] border border-border">Ctrl</kbd>
+                  {" + "}
+                  <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] border border-border">Alt</kbd>
+                  {" + "}
+                  <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] border border-border">Z</kbd>
+                  {" in Google Docs, or go to "}
+                  <strong className="text-foreground">Tools → Accessibility → Turn on screen reader support</strong>.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowDocsNudge(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Filter tabs ── */}
         <div className="flex flex-wrap gap-1.5">

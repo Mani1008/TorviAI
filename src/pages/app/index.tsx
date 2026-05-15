@@ -54,6 +54,7 @@ import {
   MicOff,
   ChevronLeft,
   ChevronRight,
+  Minimize2,
 } from "lucide-react";
 import { Tooltip } from "@/components/Tooltip";
 // ─── Thinking indicator ───────────────────────────────────────────────────────
@@ -107,6 +108,16 @@ export default function App() {
   const { transparency, setTransparency } = useTheme();
   const toast = useToast();
   const glassAlpha = transparency / 100;
+
+  // Collapsed = floating Torvi icon. Expanded = full pill bar visible.
+  // Persisted so the user's last preference survives restarts.
+  const [isPillCollapsed, setIsPillCollapsedRaw] = useState(
+    () => localStorage.getItem("pill_collapsed") !== "false"
+  );
+  const setIsPillCollapsed = (v: boolean) => {
+    localStorage.setItem("pill_collapsed", String(v));
+    setIsPillCollapsedRaw(v);
+  };
 
   // Auth gate — hide the pill bar if no valid session exists.
   // This covers the case where the window was left visible from a previous session
@@ -187,16 +198,26 @@ export default function App() {
     };
   }, []);
 
-  // Resize window to match content: 44px (toolbar), 88px (+tooltip), 110px (intensity), 600px (panel)
+  // Resize window: 44px (icon / toolbar), 88px (+tooltip), 110px (intensity), 600px (panel)
   useEffect(() => {
     import("@tauri-apps/api/core").then(({ invoke }) => {
+      if (isPillCollapsed) {
+        invoke("set_window_height", { height: 44 }).catch(() => {});
+        return;
+      }
       let height = 44;
       if (isExpanded) height = 600;
       else if (showIntensity) height = 110;
       else if (tooltipHovered) height = 88;
       invoke("set_window_height", { height }).catch(() => {});
     });
-  }, [isExpanded, showIntensity, tooltipHovered]);
+  }, [isExpanded, showIntensity, tooltipHovered, isPillCollapsed]);
+
+  // Auto-expand from icon to pill when a response (or error) arrives
+  useEffect(() => {
+    if (isExpanded) setIsPillCollapsed(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExpanded]);
 
   const openDashboard = async () => {
     try {
@@ -263,6 +284,22 @@ export default function App() {
       }).then((fn) => { unlisten = fn; });
     });
     return () => { unlisten?.(); };
+  }, []);
+
+  // Listen for Ctrl+Shift+H events from Rust
+  useEffect(() => {
+    let u1: (() => void) | undefined;
+    let u2: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("expand-pill", () => setIsPillCollapsed(false)).then((fn) => { u1 = fn; });
+      listen("toggle-pill-mode", () => setIsPillCollapsedRaw((v) => {
+        const next = !v;
+        localStorage.setItem("pill_collapsed", String(next));
+        return next;
+      })).then((fn) => { u2 = fn; });
+    });
+    return () => { u1?.(); u2?.(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Keyboard shortcuts
@@ -378,6 +415,27 @@ export default function App() {
       {/* Toast notifications */}
       <ToastContainer />
 
+      {isPillCollapsed ? (
+        /* ── Floating icon mode ── */
+        <div className="flex h-full items-center justify-center">
+          <button
+            className={`
+              h-10 w-10 rounded-full glass flex items-center justify-center
+              transition-all duration-200 hover:brightness-125 cursor-default
+              ${capturing || isMicListening ? "listening-glow" : ""}
+              ${isLoading ? "generating-glow" : ""}
+            `}
+            onMouseDown={(e) => {
+              if (e.button === 0 && isTauri()) getCurrentWindow().startDragging().catch(() => {});
+            }}
+            onClick={() => setIsPillCollapsed(false)}
+            title="Click to expand Torvi"
+          >
+            <Sparkles className="h-4 w-4 text-indigo-300/80" />
+          </button>
+        </div>
+      ) : (
+      <>
       {/* Intensity slider popover — outside toolbar so it's not clipped */}
       {showIntensity && (
         <div
@@ -419,6 +477,15 @@ export default function App() {
               onMouseDown={() => { if (isTauri()) getCurrentWindow().startDragging().catch(() => {}); }}
             >
               <GripVertical className="h-4 w-4" />
+            </button>
+          </Tooltip>
+
+          <Tooltip label="Collapse to icon">
+            <button
+              onClick={() => setIsPillCollapsed(true)}
+              className="toolbar-icon-btn no-drag"
+            >
+              <Minimize2 className="h-3.5 w-3.5" />
             </button>
           </Tooltip>
 
@@ -674,6 +741,8 @@ export default function App() {
             )}
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

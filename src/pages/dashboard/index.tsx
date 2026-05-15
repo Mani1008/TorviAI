@@ -10,6 +10,7 @@ import type { ChatConversation } from "@/types/completion";
 import type { ContextChunk } from "@/lib/database/context-store";
 import { logout } from "@/lib/appwrite";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "@/lib/platform";
 import { QuickChatInput } from "./components/QuickChatInput";
 import { RecentActivityFeed } from "./components/RecentActivityFeed";
@@ -68,7 +69,17 @@ export default function Dashboard() {
       }
     }, 1000);
 
-    return () => { unlisten?.(); clearInterval(poll); };
+    // Refresh context chunks whenever new chunks are committed to the DB.
+    // Use Tauri listen() — saveContextChunk runs in the 'main' window and
+    // emits via Tauri IPC.  DOM CustomEvents don't cross WebView boundaries.
+    let unlistenSaved: (() => void) | undefined;
+    listen<void>("context-chunks-saved", () => {
+      getRecentContext(8, 24 * 60)
+        .then((chunks) => setRecentChunks(chunks))
+        .catch(() => {});
+    }).then((fn) => { unlistenSaved = fn; }).catch(() => {});
+
+    return () => { unlisten?.(); unlistenSaved?.(); clearInterval(poll); };
   }, [loadData]);
 
   const handleSignOut = async () => {
@@ -78,7 +89,8 @@ export default function Dashboard() {
     await invoke("lock_app").catch(() => {});
   };
 
-  const todayStart = new Date().setHours(0, 0, 0, 0);
+  // captured_at is Unix seconds — convert todayStart to seconds too.
+  const todayStart = Math.floor(new Date().setHours(0, 0, 0, 0) / 1000);
   const contextChunksToday = recentChunks.filter((c) => c.captured_at >= todayStart).length;
   const firstName = user?.name?.split(" ")[0];
   const hasActivity = conversations.length > 0 || recentChunks.length > 0;

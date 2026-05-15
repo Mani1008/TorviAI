@@ -114,7 +114,19 @@ pub(crate) fn read_blocking_internal() -> Result<WindowContext, String> {
 
 // ─── Text extraction strategies ──────────────────────────────────────────────
 
-/// Try four strategies: TextPattern on root → TextPattern on Document descendant → ValuePattern → tree walk.
+/// Try strategies ordered from most-specific to most-general.
+///
+/// Strategy 0 — VS Code / Cursor / other Electron editors:
+///   Specifically target the active editor Document pane, skipping the sidebar,
+///   panel, status bar, and file explorer that pollute Strategy 1 captures.
+///
+/// Strategy 1 — TextPattern on root element (Word, Notepad, terminal, etc.)
+///
+/// Strategy 1.5 — TextPattern on Document descendant (Chrome/Edge/Firefox)
+///
+/// Strategy 2 — ValuePattern (single-line inputs)
+///
+/// Strategy 3 — Tree walk (fallback for anything else)
 #[cfg(target_os = "windows")]
 unsafe fn extract_text(
     element: &windows::Win32::UI::Accessibility::IUIAutomationElement,
@@ -122,7 +134,124 @@ unsafe fn extract_text(
 ) -> windows::core::Result<String> {
     use windows::Win32::UI::Accessibility::*;
 
-    // Strategy 1 — TextPattern: richest source (browsers, Word, VS Code, terminals)
+    // ── Strategy 0: VS Code / Cursor — jump directly to the editor pane ────────
+    //
+    // VS Code's UIAutomation tree:
+    //   Window "file.ts — project — Visual Studio Code"
+    //     Pane  AutomationId="workbench.parts.editor"
+    //       Document (active tab, IUIAutomationTextPattern-accessible)
+    //
+    // The window-level TextPattern (Strategy 1) returns the ENTIRE accessibility
+    // tree: Explorer sidebar, Outline, Source Control, NPM scripts, breadcrumbs,
+    // status bar, terminal panel — everything.  We must bypass it for VS Code.
+    //
+    // Detection: window title always ends with " — Visual Studio Code" or
+    // " - Cursor".  This is more reliable than checking the process name here
+    // because `element` is the root window whose `CurrentName()` IS the title.
+    {
+        let window_title = element.CurrentName().unwrap_or_default().to_string();
+        let title_lower = window_title.to_lowercase();
+        let is_vscode_like = title_lower.contains("visual studio code")
+            || title_lower.ends_with(" — cursor")
+            || title_lower.ends_with(" - cursor");
+
+        if is_vscode_like {
+            // Attempt 1: Find the editor-container pane by AutomationId.
+            // Each open editor tab has a Document child that exposes TextPattern.
+            let editor_pane_ids = ["workbench.parts.editor", "editor container"];
+            for pane_id in &editor_pane_ids {
+                let id_bstr = windows::core::BSTR::from(*pane_id);
+                if let Ok(cond) = automation.CreatePropertyCondition(
+                    UIA_AutomationIdPropertyId,
+                    &windows::core::VARIANT::from(id_bstr),
+                ) {
+                    if let Ok(editor_pane) = element.FindFirst(TreeScope_Descendants, &cond) {
+                        // Collect text from Document descendants — each open tab is one.
+                        if let Ok(doc_cond) = automation.CreatePropertyCondition(
+                            UIA_ControlTypePropertyId,
+                            &windows::core::VARIANT::from(UIA_DocumentControlTypeId.0),
+                        ) {
+                            if let Ok(doc_array) =
+                                editor_pane.FindAll(TreeScope_Descendants, &doc_cond)
+                            {
+                                let count = doc_array.Length().unwrap_or(0);
+                                let mut best = String::new();
+                                for idx in 0..count {
+                                    if let Ok(doc_el) = doc_array.GetElement(idx) {
+                                        if let Ok(pat) = doc_el
+                                            .GetCurrentPatternAs::<IUIAutomationTextPattern>(
+                                                UIA_TextPatternId,
+                                            )
+                                        {
+                                            if let Ok(range) = pat.DocumentRange() {
+                                                if let Ok(text) = range.GetText(-1) {
+                                                    let s = text.to_string();
+                                                    if s.len() > best.len() {
+                                                        best = s;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if best.len() > 100 {
+                                    return Ok(truncate_text(best, 20_000));
+                                }
+                            }
+                        }
+                        // Fallback: TextPattern directly on the editor pane element.
+                        if let Ok(pat) = editor_pane
+                            .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+                        {
+                            if let Ok(range) = pat.DocumentRange() {
+                                if let Ok(text) = range.GetText(-1) {
+                                    let s = text.to_string();
+                                    if s.len() > 100 {
+                                        return Ok(truncate_text(s, 20_000));
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Attempt 2: Find the monaco-editor element by ClassName.
+            // VS Code renders each editor using a <div class="monaco-editor"> whose
+            // wrapper element is ClassName-accessible via UIAutomation.
+            if let Ok(cond) = automation.CreatePropertyCondition(
+                UIA_ClassNamePropertyId,
+                &windows::core::VARIANT::from(
+                    windows::core::BSTR::from("monaco-editor"),
+                ),
+            ) {
+                if let Ok(editor_el) = element.FindFirst(TreeScope_Descendants, &cond) {
+                    if let Ok(pat) = editor_el
+                        .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+                    {
+                        if let Ok(range) = pat.DocumentRange() {
+                            if let Ok(text) = range.GetText(-1) {
+                                let s = text.to_string();
+                                if s.len() > 100 {
+                                    return Ok(truncate_text(s, 20_000));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // VS Code detected but neither editor selector worked (e.g. Welcome tab,
+            // extension views, Settings UI).  Skip Strategy 1 — it would capture
+            // the full sidebar tree.  Fall through to the filtered tree walk below,
+            // which at least strips buttons, toolbars, and menus.
+            return walk_children(element, automation, 0);
+        }
+    }
+
+    // ── Strategy 1: TextPattern on root (Word, Notepad, terminals, etc.) ─────
+    // Safe for non-VS-Code apps.  VS Code returns early above before reaching here.
     if let Ok(pattern) =
         element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
     {
@@ -130,13 +259,65 @@ unsafe fn extract_text(
             if let Ok(text) = range.GetText(-1) {
                 let s = text.to_string();
                 if !s.is_empty() {
-                    return Ok(truncate_text(s, 8_000));
+                    return Ok(truncate_text(s, 20_000));
                 }
             }
         }
     }
 
-    // Strategy 1.5 — TextPattern on first Document descendant.
+    // ── Strategy 1.5a: Browser RootWebArea — most targeted for Chromium apps ──
+    // In Chrome/Edge/Brave/Vivaldi the webpage content is wrapped in an element
+    // with AutomationId = "RootWebArea".  Finding it directly skips all browser
+    // chrome: address bar, bookmarks bar, tab strip, extension buttons, sidebar.
+    // For non-browser apps this FindFirst will simply return an error → fall through.
+    //
+    // CRITICAL: when TextPattern on the web element fails (e.g. Google Docs renders
+    // its content on a <canvas> that is invisible to TextPattern), we MUST fall back
+    // to a filtered tree walk scoped to the web_el — NOT to the root window element.
+    // Walking from the root would escape the RootWebArea boundary and read all of
+    // Chrome's own toolbar/menu/bookmarks chrome again.
+    {
+        let root_web_area_bstr = windows::core::BSTR::from("RootWebArea");
+        if let Ok(cond) = automation.CreatePropertyCondition(
+            UIA_AutomationIdPropertyId,
+            &windows::core::VARIANT::from(root_web_area_bstr),
+        ) {
+            if let Ok(web_el) = element.FindFirst(TreeScope_Descendants, &cond) {
+                // Attempt A: TextPattern (rich apps like Claude.ai, Notion, Slack web).
+                if let Ok(pattern) =
+                    web_el.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+                {
+                    if let Ok(range) = pattern.DocumentRange() {
+                        if let Ok(text) = range.GetText(-1) {
+                            let s = text.to_string();
+                            if s.len() > 50 {
+                                return Ok(truncate_text(s, 20_000));
+                            }
+                        }
+                    }
+                }
+
+                // Attempt B: scoped filtered walk within RootWebArea.
+                // Used for Google Docs (canvas-rendered), Google Sheets, and other
+                // web apps where TextPattern returns nothing.
+                // By walking from web_el we stay entirely inside the webpage —
+                // Chrome toolbars, menus, and extension buttons are outside this subtree.
+                let scoped = walk_children(&web_el, automation, 0);
+                if let Ok(text) = scoped {
+                    if text.len() > 50 {
+                        return Ok(truncate_text(text, 20_000));
+                    }
+                }
+
+                // Even if the scoped walk returned nothing useful, return empty rather
+                // than falling through to a full-window walk.  An empty capture is
+                // better than polluting the context store with toolbar noise.
+                return Ok(String::new());
+            }
+        }
+    }
+
+    // Strategy 1.5b — TextPattern on first Document descendant.
     // Chrome, Edge and Firefox don't expose IUIAutomationTextPattern on the root
     // window element, but the inner web-content pane
     // (ControlType = UIA_DocumentControlTypeId = 50030) does.  This is the
@@ -158,7 +339,7 @@ unsafe fn extract_text(
                             // Only return if there is meaningful content (> 50 chars
                             // filters out empty document shell elements).
                             if s.len() > 50 {
-                                return Ok(truncate_text(s, 8_000));
+                                return Ok(truncate_text(s, 20_000));
                             }
                         }
                     }
@@ -243,6 +424,9 @@ unsafe fn walk_children(
         UIA_TitleBarControlTypeId,
         UIA_SeparatorControlTypeId,
         UIA_AppBarControlTypeId,
+        UIA_TabControlTypeId,   // browser tab strip — leaks tab titles as nav noise
+        UIA_TabItemControlTypeId,
+        UIA_CheckBoxControlTypeId,
     ];
 
     let condition = automation.CreateTrueCondition()?;
@@ -406,12 +590,30 @@ unsafe fn extract_browser_url(
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
-/// Truncate `s` to at most `max_chars`, breaking at the last newline or space.
+/// Truncate `s` to at most `max_chars` CHARACTERS (not bytes), breaking at the
+/// last newline or space before the limit where possible.
+///
+/// Previous implementation used `s.len()` (bytes) and `&s[..max_chars]` (byte
+/// slice), which panics whenever a multi-byte character (e.g. U+EAB4, VS Code
+/// Nerd Font icons, CJK text) straddles the byte boundary.  This version always
+/// operates on character counts and char-boundary-safe indices.
 fn truncate_text(s: String, max_chars: usize) -> String {
-    if s.len() <= max_chars {
+    // Count characters (not bytes).
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
         return s;
     }
-    let slice = &s[..max_chars];
+
+    // Find the byte offset of `max_chars`-th character — always a valid boundary.
+    let byte_limit = s
+        .char_indices()
+        .nth(max_chars)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len());
+
+    let slice = &s[..byte_limit];
+
+    // Prefer breaking at the last newline or space so we don't cut mid-word.
     match slice.rfind('\n').or_else(|| slice.rfind(' ')) {
         Some(pos) => s[..pos].to_string(),
         None => slice.to_string(),

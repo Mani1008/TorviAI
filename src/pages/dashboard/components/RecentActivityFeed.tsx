@@ -52,7 +52,9 @@ export function RecentActivityFeed({ conversations, contextChunks }: Props) {
       type: "context",
       title: ch.window_title.split(" - ")[0].trim().slice(0, 60),
       subtitle: `${CONTENT_TYPE_LABELS[ch.content_type] ?? ch.content_type} · ${ch.app_name}`,
-      timestamp: ch.captured_at,
+      // ch.captured_at is Unix seconds; convert to ms so it sorts and displays
+      // correctly alongside chat conversations (which use Date.now() milliseconds).
+      timestamp: ch.captured_at * 1000,
       href: "/context-memory",
     }));
 

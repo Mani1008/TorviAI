@@ -127,6 +127,7 @@ function ContextPanel({ status, onResume, onPause, onClose, onManage }: ContextP
     setResuming(true);
     try {
       await invoke("start_context_watcher");
+      sessionStorage.removeItem("ctx_watcher_paused"); // clear user pause intent
       onResume();
     } finally {
       setResuming(false);
@@ -136,6 +137,7 @@ function ContextPanel({ status, onResume, onPause, onClose, onManage }: ContextP
   const handlePause = async () => {
     try {
       await invoke("stop_context_watcher");
+      sessionStorage.setItem("ctx_watcher_paused", "1"); // remember user pause intent
       onPause();
     } catch { /* ignore */ }
   };

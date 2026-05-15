@@ -6,11 +6,11 @@ import { AppProvider } from "@/contexts/app.context";
 import { ToastProvider } from "@/contexts/toast.context";
 import { router } from "@/routes";
 import { initDatabase, initSystemPromptsTable } from "@/lib/database";
-import { initContextStore, saveContextChunk, pruneOldContext, type AppContextSnapshot } from "@/lib/database/context-store";
+import { initContextStore, pruneOldContext } from "@/lib/database/context-store";
 import { initSessionTracking } from "@/lib/storage/usage";
 import { isTauri } from "@/lib/platform";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./global.css";
 
 // Initialize database tables on startup (Tauri only — not available in plain browser)
@@ -18,28 +18,52 @@ if (isTauri()) {
   initDatabase().catch(console.error);
   initSystemPromptsTable().catch(console.error);
 
-  // Initialise the context-chunks table, then start the UIAutomation watcher.
+  // Initialise the context-chunks table (schema + migrations).
+  // This is fire-and-forget — failures are logged but must NOT block the listener
+  // or watcher startup below.  A DB error during init (e.g. locked file, schema
+  // mismatch) previously caused the entire .then() chain to be skipped, leaving
+  // no listener registered and no chunks ever saved.
   initContextStore()
     .then(() => {
-      // Prune stale context from previous sessions (keep last 24 h).
       pruneOldContext().catch(console.error);
-
-      // Prune again every hour — avoids unbounded DB growth during long sessions.
-      setInterval(() => {
-        pruneOldContext().catch(console.error);
-      }, 60 * 60 * 1000);
-
-      // Start the background context watcher (Windows UIAutomation, 5 s poll).
-      invoke("start_context_watcher").catch((e: unknown) =>
-        console.warn("[ContextWatcher] Could not start:", e)
-      );
-
-      // Persist every captured snapshot to SQLite for RAG injection.
-      listen<AppContextSnapshot>("context-captured", ({ payload }) => {
-        saveContextChunk(payload).catch(console.error);
-      }).catch(console.error);
+      setInterval(() => pruneOldContext().catch(console.error), 60 * 60 * 1000);
     })
-    .catch(console.error);
+    .catch((e: unknown) =>
+      console.error("[ContextStore] initContextStore failed — saves may fail:", e)
+    );
+
+  // Start the background context watcher UNCONDITIONALLY — do not wait for
+  // initContextStore so a DB hiccup cannot prevent the watcher from starting.
+  // IMPORTANT: Only start the watcher in the 'main' pill-bar window.  The
+  // 'dashboard' window loads the same main.tsx and would otherwise attempt to
+  // start a second watcher instance.
+  const currentWindowLabel = getCurrentWindow().label;
+  if (currentWindowLabel === "main") {
+    invoke("start_context_watcher").catch((e: unknown) =>
+      console.warn("[ContextWatcher] Could not start:", e)
+    );
+
+    // NOTE: context chunk SAVES now happen entirely in Rust (context_db.rs).
+    // The Rust watcher saves directly via sqlx after each capture, then emits
+    // "context-chunks-saved" for the dashboard/context-memory UI to refresh.
+    // We no longer register a JS listen("context-captured") for saving here —
+    // the previous JS-side tauri-plugin-sql execute() was silently dropping all
+    // INSERT OR REPLACE statements (rows_affected=0, no exception thrown).
+
+    // Watchdog: restart the watcher if it stops unexpectedly (HMR, crash, etc.)
+    // unless the user deliberately paused it via the UI.
+    setInterval(() => {
+      if (sessionStorage.getItem("ctx_watcher_paused") === "1") return;
+      invoke<string>("get_watcher_status")
+        .then((s) => {
+          if (s !== "running") {
+            console.warn("[ContextWatcher] Watchdog: watcher was stopped — restarting.");
+            invoke("start_context_watcher").catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }, 10_000);
+  }
 }
 // Track session count for usage stats
 initSessionTracking();

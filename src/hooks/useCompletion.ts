@@ -106,8 +106,13 @@ export function useCompletion() {
       abortControllerRef.current = controller;
 
       // Augment the system prompt with recent screen context (RAG).
-      // Falls back silently to the base prompt if context is unavailable.
-      const augmentedSystemPrompt = await buildContextAwareSystemPrompt(systemPrompt, text);
+      // Pass the full apiMessages history so keyword extraction spans the last
+      // 3 user turns — not just the current message.
+      const augmentedSystemPrompt = await buildContextAwareSystemPrompt(
+        systemPrompt,
+        text,
+        apiMessages
+      );
 
       try {
         for await (const chunk of streamAIFromConfig({
