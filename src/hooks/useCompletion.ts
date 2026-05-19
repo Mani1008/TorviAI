@@ -78,9 +78,14 @@ export function useCompletion() {
 
       // Build API messages — cap history to avoid unbounded token growth.
       // Apply message count cap first, then trim oldest messages if total chars exceed budget.
+      // RAG_OVERHEAD_RESERVE accounts for the context block injected by buildContextAwareSystemPrompt
+      // (up to RAG_MAX_CHUNKS × RAG_CHUNK_CHAR_LIMIT ≈ 20,000 chars). Without this reservation the
+      // history budget ignores RAG and the total payload can reach 80k + 20k = 100k chars, making
+      // TTFT noticeably longer on every request.
+      const RAG_OVERHEAD_RESERVE = 20_000;
       const recentMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
       const apiMessages: Message[] = [];
-      let contextChars = systemPrompt.length;
+      let contextChars = systemPrompt.length + RAG_OVERHEAD_RESERVE;
       // Walk newest-first so we always include the most recent messages
       for (let i = recentMessages.length - 1; i >= 0; i--) {
         const content = typeof recentMessages[i].content === "string"

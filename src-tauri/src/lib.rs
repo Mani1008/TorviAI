@@ -5,6 +5,7 @@ mod api;
 mod app_context;
 mod auth;
 mod capture;
+mod context_db;
 mod privacy_filter;
 mod screen_reader;
 mod shortcuts;
@@ -62,7 +63,7 @@ pub fn run() {
             });
 
             // Register global shortcut: Ctrl+Shift+H → smart toggle overlay
-            // Hidden → show+focus | Visible+unfocused → focus | Visible+focused → hide
+            // Hidden → show pill bar | Visible+unfocused → focus | Visible+focused → collapse to icon
             // Only fires when the user is authenticated.
             let h1 = app.handle().clone();
             app.global_shortcut().on_shortcut("ctrl+shift+h", move |_app, _shortcut, event| {
@@ -72,14 +73,15 @@ pub fn run() {
                     }
                     if let Some(w) = h1.get_webview_window("main") {
                         let visible = w.is_visible().unwrap_or(false);
-                        let focused = w.is_focused().unwrap_or(false);
                         if !visible {
+                            // Window fully hidden → show and expand to pill
                             let _ = w.show();
                             let _ = w.set_focus();
-                        } else if !focused {
-                            let _ = w.set_focus();
+                            let _ = w.emit("expand-pill", ());
                         } else {
-                            let _ = w.hide();
+                            // Window visible (icon or pill) → toggle pill mode
+                            let _ = w.set_focus();
+                            let _ = w.emit("toggle-pill-mode", ());
                         }
                     }
                 }

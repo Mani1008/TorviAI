@@ -4,6 +4,7 @@ use serde::Serialize;
 use std::env;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
 // ─── Rate-limit state ─────────────────────────────────────────────────────────
@@ -262,7 +263,13 @@ pub async fn stream_ai_request(
         "messages": full_messages,
     });
 
-    let client = Client::new();
+    // 10 s TCP handshake cap + 3 min hard ceiling for the full SSE stream.
+    // Prevents indefinite hangs when OpenRouter/NVIDIA free-tier queues are long.
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(180))
+        .build()
+        .unwrap_or_default();
     let mut builder = client
         .post(url)
         .header("Content-Type", "application/json")

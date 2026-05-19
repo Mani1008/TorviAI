@@ -16,6 +16,8 @@ import { STORAGE_KEYS, DEFAULT_SCREENSHOT_CONFIG } from "@/config/constants";
 import type { ScreenshotConfig } from "@/types/settings";
 import { saveScreenshot } from "@/lib/database/screenshots";
 import { syncScreenshot } from "@/lib/appwrite/sync-screenshots";
+import { DEFAULT_SHORTCUTS } from "@/config/shortcuts";
+import { loadShortcuts } from "@/lib/storage";
 
 /** Read the latest screenshot config directly from localStorage (not React state).
  * The pill bar and dashboard are separate Tauri windows — React context state is
@@ -57,6 +59,32 @@ import {
   Minimize2,
 } from "lucide-react";
 import { Tooltip } from "@/components/Tooltip";
+
+// ─── Key matching utility ─────────────────────────────────────────────────────
+// Parses a key string like "Ctrl+Shift+S" and checks it against a KeyboardEvent.
+function matchKey(e: KeyboardEvent, keyStr: string): boolean {
+  const parts = keyStr.split("+");
+  const mainKey = parts[parts.length - 1];
+  const hasCtrl = parts.some((p) => p === "Ctrl" || p === "Cmd");
+  const hasShift = parts.some((p) => p === "Shift");
+  const hasAlt = parts.some((p) => p === "Alt");
+  return (
+    (e.ctrlKey || e.metaKey) === hasCtrl &&
+    e.shiftKey === hasShift &&
+    e.altKey === hasAlt &&
+    e.key === mainKey
+  );
+}
+
+// Returns the current key string for a shortcut id, respecting custom bindings.
+function sk(id: string): string {
+  const custom = loadShortcuts();
+  return (
+    custom?.find((s) => s.id === id)?.key ??
+    DEFAULT_SHORTCUTS.find((s) => s.id === id)!.key
+  );
+}
+
 // ─── Thinking indicator ───────────────────────────────────────────────────────
 function ThinkingDots() {
   return (
@@ -95,6 +123,8 @@ export default function App() {
   } = useSystemAudio(sendMessage);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Tracks whether a pointer-drag started on the floating icon (suppresses click).
+  const iconDragRef = useRef(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [sttText, setSttText] = useState("");
   const [showIntensity, setShowIntensity] = useState(false);
@@ -302,10 +332,10 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts — in-app bindings respect custom shortcuts saved in localStorage
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Escape — no modifier needed
+      // Escape — hardcoded, always closes the response panel
       if (e.key === "Escape") {
         if (isExpanded) handleClear();
         return;
@@ -314,60 +344,37 @@ export default function App() {
       const ctrl = e.ctrlKey || e.metaKey;
       if (!ctrl) return;
 
-      // Ctrl+Shift+Arrow — navigate response slides
+      // Ctrl+Shift+Arrow — navigate response slides (hardcoded, not configurable)
       if (e.shiftKey && e.key === "ArrowLeft") { e.preventDefault(); goPrevSlide(); return; }
       if (e.shiftKey && e.key === "ArrowRight") { e.preventDefault(); goNextSlide(); return; }
 
-      switch (true) {
-        case e.shiftKey && e.key === "I":
+      // Configurable in-app shortcuts
+      const actions: Array<[string, () => void]> = [
+        ["focus_input",     () => inputRef.current?.focus()],
+        ["screenshot",      handleScreenAnalysis],
+        ["system_audio",    handleListenToggle],
+        ["microphone",      handleMicToggle],
+        ["toggle_dashboard",openDashboard],
+        ["clear_chat",      handleClear],
+        ["glass_decrease",  () => setTransparency(Math.max(25, transparency - 5))],
+        ["glass_increase",  () => setTransparency(Math.min(100, transparency + 5))],
+      ];
+      for (const [id, action] of actions) {
+        if (matchKey(e, sk(id))) { e.preventDefault(); action(); return; }
+      }
+
+      // Move window — Ctrl+Arrow (no Shift); hardcoded
+      if (!e.shiftKey) {
+        const dirMap: Record<string, string> = {
+          ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+        };
+        const dir = dirMap[e.key];
+        if (dir) {
           e.preventDefault();
-          inputRef.current?.focus();
-          break;
-        case e.shiftKey && e.key === "S":
-          e.preventDefault();
-          handleScreenAnalysis();
-          break;
-        case e.shiftKey && e.key === "A":
-          e.preventDefault();
-          handleListenToggle();
-          break;
-        case e.shiftKey && e.key === "M":
-          e.preventDefault();
-          handleMicToggle();
-          break;
-        case e.shiftKey && e.key === "D":
-          e.preventDefault();
-          openDashboard();
-          break;
-        case e.shiftKey && e.key === "X":
-          e.preventDefault();
-          handleClear();
-          break;
-        case e.key === "[":
-          e.preventDefault();
-          setTransparency(Math.max(25, transparency - 5));
-          break;
-        case e.key === "]":
-          e.preventDefault();
-          setTransparency(Math.min(100, transparency + 5));
-          break;
-        // Ctrl+Arrow — move window
-        case e.key === "ArrowUp":
-          e.preventDefault();
-          import("@tauri-apps/api/core").then(({ invoke }) => invoke("move_window", { direction: "up", step: 20 }));
-          break;
-        case e.key === "ArrowDown":
-          e.preventDefault();
-          import("@tauri-apps/api/core").then(({ invoke }) => invoke("move_window", { direction: "down", step: 20 }));
-          break;
-        case e.key === "ArrowLeft":
-          e.preventDefault();
-          import("@tauri-apps/api/core").then(({ invoke }) => invoke("move_window", { direction: "left", step: 20 }));
-          break;
-        case e.key === "ArrowRight":
-          e.preventDefault();
-          import("@tauri-apps/api/core").then(({ invoke }) => invoke("move_window", { direction: "right", step: 20 }));
-          break;
+          import("@tauri-apps/api/core").then(({ invoke }) =>
+            invoke("move_window", { direction: dir, step: 20 })
+          );
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -425,10 +432,28 @@ export default function App() {
               ${capturing || isMicListening ? "listening-glow" : ""}
               ${isLoading ? "generating-glow" : ""}
             `}
-            onMouseDown={(e) => {
-              if (e.button === 0 && isTauri()) getCurrentWindow().startDragging().catch(() => {});
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              iconDragRef.current = false;
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const onMove = (ev: PointerEvent) => {
+                if (Math.abs(ev.clientX - startX) > 4 || Math.abs(ev.clientY - startY) > 4) {
+                  iconDragRef.current = true;
+                  document.removeEventListener("pointermove", onMove);
+                  if (isTauri()) getCurrentWindow().startDragging().catch(() => {});
+                }
+              };
+              const onUp = () => {
+                document.removeEventListener("pointermove", onMove);
+                document.removeEventListener("pointerup", onUp);
+              };
+              document.addEventListener("pointermove", onMove);
+              document.addEventListener("pointerup", onUp);
             }}
-            onClick={() => setIsPillCollapsed(false)}
+            onClick={() => {
+              if (!iconDragRef.current) setIsPillCollapsed(false);
+            }}
             title="Click to expand Torvi"
           >
             <Sparkles className="h-4 w-4 text-indigo-300/80" />

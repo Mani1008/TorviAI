@@ -270,7 +270,9 @@ export const OPENROUTER_MODELS: ModelOption[] = [
 // Default model used when no role has been selected yet.
 // Must be present in ALLOWED_MODELS in src-tauri/src/api.rs.
 // Using a free OpenRouter model so the app works out-of-the-box with only OPENROUTER_API_KEY.
-export const DEFAULT_MODEL_ID = "google/gemini-2.0-flash-exp:free";
+// NOTE: Prefer llama-4-maverick:free over gemini-2.0-flash-exp:free — the latter is an
+// experimental/deprecated model with heavy free-tier queuing (can take 2-5 min TTFT).
+export const DEFAULT_MODEL_ID = "meta-llama/llama-4-maverick:free";
 
 export function getModelById(id: string): ModelOption | undefined {
   return OPENROUTER_MODELS.find((m) => m.id === id);
