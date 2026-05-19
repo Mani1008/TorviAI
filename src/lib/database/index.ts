@@ -3,6 +3,8 @@ export {
   createConversation,
   getConversationById,
   getAllConversations,
+  getConversationsPaged,
+  searchConversations,
   updateConversation,
   deleteConversation,
   deleteAllConversations,

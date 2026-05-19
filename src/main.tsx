@@ -53,7 +53,7 @@ if (isTauri()) {
     // Watchdog: restart the watcher if it stops unexpectedly (HMR, crash, etc.)
     // unless the user deliberately paused it via the UI.
     setInterval(() => {
-      if (sessionStorage.getItem("ctx_watcher_paused") === "1") return;
+      if (localStorage.getItem("ctx_watcher_paused") === "1") return;
       invoke<string>("get_watcher_status")
         .then((s) => {
           if (s !== "running") {

@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Context Memory — Torvi AI</title>
+<style>
+:root{
+  --bg:#080c14;--bg1:#0d1220;--bg2:#111827;--bg3:#161e2e;--bg4:#1a2235;
+  --border:#1e2d44;--border2:#243352;
+  --text:#e2e8f0;--muted:#8898aa;--dim:#4a5568;
+  --indigo:#6366f1;--indigo2:#818cf8;--indigo3:#a5b4fc;
+  --cyan:#22d3ee;--cyan2:#67e8f9;
+  --green:#10b981;--green2:#34d399;
+  --yellow:#f59e0b;--yellow2:#fcd34d;
+  --red:#ef4444;--red2:#fca5a5;
+  --purple:#a855f7;--purple2:#c084fc;
+  --orange:#f97316;
+  --mono:'JetBrains Mono','Fira Code',Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  --r:8px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14.5px;line-height:1.75;-webkit-font-smoothing:antialiased;}
+
+/* ── PROGRESS BAR ─────────────────────────────── */
+#progress-bar{position:fixed;top:0;left:0;height:2px;background:linear-gradient(90deg,var(--indigo),var(--cyan));width:0%;z-index:1000;transition:width .1s;}
+
+/* ── LAYOUT ───────────────────────────────────── */
+.shell{display:flex;max-width:1440px;margin:0 auto;}
+.sidebar{width:260px;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid var(--border);padding:24px 0;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.sidebar::-webkit-scrollbar{width:3px;}
+.sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.toc-label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);padding:0 18px 8px;}
+.toc-list{list-style:none;}
+.toc-list li a{display:flex;align-items:center;gap:8px;padding:5px 18px;font-size:12px;color:var(--muted);text-decoration:none;border-left:2px solid transparent;transition:all .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.toc-list li a:hover,.toc-list li a.active{color:var(--indigo2);border-left-color:var(--indigo);background:#ffffff06;}
+.toc-list li a .toc-dot{width:6px;height:6px;border-radius:50%;background:var(--dim);flex-shrink:0;transition:background .15s;}
+.toc-list li a.active .toc-dot,.toc-list li a:hover .toc-dot{background:var(--indigo);}
+.toc-list .sub a{padding-left:36px;font-size:11.5px;color:var(--dim);}
+.toc-divider{height:1px;background:var(--border);margin:8px 18px;}
+
+.content{flex:1;min-width:0;padding:0 0 100px;}
+
+/* ── PRESENTATION MODE ────────────────────────── */
+body.pres-mode .content{padding:0;}
+body.pres-mode .slide{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:60px 72px;border-bottom:1px solid var(--border);position:relative;}
+body.pres-mode .slide:not(.active-slide){opacity:.3;pointer-events:none;}
+body.pres-mode .slide.active-slide{opacity:1;pointer-events:auto;}
+.pres-nav{display:none;position:fixed;bottom:28px;right:28px;z-index:200;gap:8px;}
+body.pres-mode .pres-nav{display:flex;}
+.pres-btn{background:var(--bg3);border:1px solid var(--border2);color:var(--text);width:40px;height:40px;border-radius:var(--r);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:all .15s;}
+.pres-btn:hover{background:var(--indigo);border-color:var(--indigo);}
+.pres-counter{background:var(--bg3);border:1px solid var(--border2);color:var(--muted);padding:0 14px;height:40px;border-radius:var(--r);display:flex;align-items:center;font-size:12px;font-family:var(--mono);}
+
+/* ── TOOLBAR ─────────────────────────────────── */
+.toolbar{position:sticky;top:0;z-index:100;background:var(--bg1);border-bottom:1px solid var(--border);padding:10px 48px;display:flex;align-items:center;gap:10px;}
+.toolbar-title{font-size:13px;font-weight:600;color:var(--indigo2);flex:1;}
+.tb-btn{background:var(--bg3);border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;transition:all .15s;display:flex;align-items:center;gap:6px;}
+.tb-btn:hover{color:var(--text);border-color:var(--indigo);}
+.tb-btn.active{background:var(--indigo);border-color:var(--indigo);color:#fff;}
+kbd{background:var(--bg4);border:1px solid var(--border2);border-radius:4px;padding:1px 5px;font-family:var(--mono);font-size:10px;color:var(--muted);}
+
+/* ── SLIDE CONTENT ───────────────────────────── */
+.slide{padding:60px 72px 48px;}
+
+/* ── HERO ────────────────────────────────────── */
+.hero{padding:72px 72px 56px;border-bottom:1px solid var(--border);}
+.hero-eyebrow{display:flex;align-items:center;gap:10px;margin-bottom:18px;}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;}
+.badge-indigo{background:#1e1f4a;color:var(--indigo2);border:1px solid #3730a366;}
+.badge-green{background:#0d2920;color:var(--green2);border:1px solid #0d392066;}
+.badge-yellow{background:#2a1f0a;color:var(--yellow2);border:1px solid #3d2a0866;}
+.badge-red{background:#2a0e0e;color:var(--red2);border:1px solid #3d0e0e66;}
+.badge-cyan{background:#0a1f2a;color:var(--cyan2);border:1px solid #0d3d5266;}
+.badge-purple{background:#1a0a2a;color:var(--purple2);border:1px solid #3d0a5266;}
+.badge-orange{background:#2a1500;color:var(--orange);border:1px solid #3d200066;}
+.hero h1{font-size:38px;font-weight:800;letter-spacing:-1px;background:linear-gradient(135deg,#fff 0%,var(--indigo3) 60%,var(--cyan) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:14px;}
+.hero-sub{font-size:16px;color:var(--muted);max-width:580px;line-height:1.6;}
+.stats-row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:40px;}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:18px 16px;text-align:center;transition:all .2s;}
+.stat-card:hover{border-color:var(--indigo);transform:translateY(-2px);}
+.stat-num{font-size:26px;font-weight:800;font-family:var(--mono);background:linear-gradient(135deg,var(--indigo2),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.stat-label{font-size:11px;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;}
+
+/* ── SECTION HEADINGS ────────────────────────── */
+h2.sec{font-size:20px;font-weight:700;color:#f0f4ff;margin-bottom:6px;display:flex;align-items:center;gap:12px;}
+h2.sec .sec-num{font-size:11px;font-weight:700;font-family:var(--mono);background:var(--indigo);color:#fff;padding:2px 8px;border-radius:4px;flex-shrink:0;}
+h2.sec .sec-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+.sec-desc{font-size:13.5px;color:var(--muted);margin-bottom:28px;max-width:640px;}
+h3.sub{font-size:14px;font-weight:600;color:var(--indigo2);margin:28px 0 12px;display:flex;align-items:center;gap:8px;}
+h3.sub::before{content:'';display:inline-block;width:3px;height:13px;background:var(--indigo);border-radius:2px;flex-shrink:0;}
+h4.mini{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin:20px 0 8px;}
+
+/* ── PIPELINE SVG SECTION ────────────────────── */
+.pipeline-wrap{background:var(--bg1);border:1px solid var(--border);border-radius:var(--r);padding:32px 24px;margin:24px 0;overflow-x:auto;}
+
+/* ── CARDS GRID ──────────────────────────────── */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin:16px 0 28px;}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:20px;}
+.card:hover{border-color:var(--border2);}
+.card-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;display:flex;align-items:center;gap:8px;}
+.card-icon{width:24px;height:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}
+.card-body{font-size:13px;color:var(--muted);line-height:1.6;}
+.card-body code{font-family:var(--mono);font-size:11.5px;background:var(--bg4);color:var(--indigo3);padding:1px 5px;border-radius:3px;border:1px solid var(--border2);}
+
+/* ── TABLES ──────────────────────────────────── */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r);margin:14px 0 28px;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+thead{background:var(--bg3);}
+thead th{padding:10px 14px;text-align:left;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border);}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:nth-child(odd){background:var(--bg2);}
+tbody tr:nth-child(even){background:#0b1018;}
+tbody tr:hover{background:#1c2535;}
+td{padding:9px 14px;vertical-align:top;color:var(--text);}
+td code,th code{font-family:var(--mono);font-size:11.5px;background:var(--bg4);color:var(--indigo3);padding:1px 5px;border-radius:3px;border:1px solid var(--border2);}
+td .badge{vertical-align:middle;}
+
+/* ── CODE BLOCKS ──────────────────────────────── */
+.code-file{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin:12px 0 24px;}
+.code-header{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--bg4);border-bottom:1px solid var(--border);}
+.code-path{font-family:var(--mono);font-size:11.5px;color:var(--muted);}
+.code-lang{font-size:10px;color:var(--dim);background:var(--bg);padding:2px 7px;border-radius:4px;border:1px solid var(--border);}
+.copy-btn{background:none;border:1px solid var(--border);color:var(--dim);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;transition:all .15s;}
+.copy-btn:hover{color:var(--text);border-color:var(--indigo);}
+.copy-btn.copied{color:var(--green2);border-color:var(--green);}
+pre.code-body{padding:18px 20px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.65;color:#94a3b8;white-space:pre;}
+pre.code-body .kw{color:var(--indigo2);}
+pre.code-body .fn{color:#60a5fa;}
+pre.code-body .str{color:#86efac;}
+pre.code-body .cm{color:var(--dim);font-style:italic;}
+pre.code-body .num{color:var(--orange);}
+pre.code-body .ty{color:var(--cyan2);}
+pre.code-body .attr{color:var(--yellow2);}
+pre.code-body .mac{color:var(--purple2);}
+
+/* ── COLLAPSIBLE ─────────────────────────────── */
+.collapsible{border:1px solid var(--border);border-radius:var(--r);margin:10px 0;overflow:hidden;}
+.collapse-hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;cursor:pointer;background:var(--bg2);transition:background .15s;user-select:none;}
+.collapse-hdr:hover{background:var(--bg3);}
+.collapse-hdr-left{display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:600;color:var(--text);}
+.collapse-chevron{font-size:12px;color:var(--muted);transition:transform .2s;}
+.collapsible.open .collapse-chevron{transform:rotate(90deg);}
+.collapse-body{display:none;padding:20px 20px 16px;background:var(--bg1);border-top:1px solid var(--border);}
+.collapsible.open .collapse-body{display:block;}
+
+/* ── FLOW NODES ──────────────────────────────── */
+.flow-node{display:flex;align-items:center;gap:0;margin:4px 0;}
+.fn-box{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:10px 16px;font-family:var(--mono);font-size:12px;color:var(--text);flex-shrink:0;min-width:200px;}
+.fn-arrow{color:var(--indigo);font-size:18px;padding:0 10px;flex-shrink:0;}
+.fn-label{font-size:12px;color:var(--muted);font-style:italic;}
+.flow-indent{padding-left:32px;}
+
+/* ── STRATEGY TABLE ──────────────────────────── */
+.strategy-row{display:flex;align-items:flex-start;gap:14px;padding:14px 0;border-bottom:1px solid var(--border);}
+.strategy-row:last-child{border-bottom:none;}
+.strategy-priority{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;font-family:var(--mono);}
+.strategy-info{flex:1;}
+.strategy-name{font-size:13.5px;font-weight:600;color:var(--text);margin-bottom:4px;}
+.strategy-desc{font-size:12.5px;color:var(--muted);line-height:1.5;}
+.strategy-apps{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;}
+
+/* ── BM25 PARAMS ──────────────────────────────── */
+.param-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin:16px 0;}
+.param-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:16px;}
+.param-name{font-family:var(--mono);font-size:12px;color:var(--cyan2);margin-bottom:6px;}
+.param-val{font-size:22px;font-weight:800;font-family:var(--mono);color:#fff;margin-bottom:4px;}
+.param-desc{font-size:11.5px;color:var(--muted);line-height:1.45;}
+
+/* ── PIPELINE STEPS ──────────────────────────── */
+.steps{counter-reset:step;display:flex;flex-direction:column;gap:0;}
+.step{display:flex;gap:16px;padding:16px 0;position:relative;}
+.step::before{content:counter(step);counter-increment:step;width:28px;height:28px;background:var(--indigo);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;font-family:var(--mono);margin-top:2px;}
+.step:not(:last-child)::after{content:'';position:absolute;left:14px;top:46px;bottom:-4px;width:1px;background:var(--border2);}
+.step-body{}
+.step-title{font-size:13.5px;font-weight:600;color:var(--text);margin-bottom:4px;}
+.step-desc{font-size:12.5px;color:var(--muted);line-height:1.55;}
+.step-desc code{font-family:var(--mono);font-size:11.5px;background:var(--bg4);color:var(--indigo3);padding:1px 5px;border-radius:3px;border:1px solid var(--border2);}
+
+/* ── PRIVACY DEMO ────────────────────────────── */
+.pii-demo{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:22px;margin:18px 0;}
+.pii-demo textarea{width:100%;background:var(--bg1);border:1px solid var(--border2);border-radius:6px;padding:12px 14px;color:var(--text);font-family:var(--mono);font-size:12.5px;resize:vertical;min-height:90px;outline:none;line-height:1.6;}
+.pii-demo textarea:focus{border-color:var(--indigo);}
+.pii-output{margin-top:12px;background:var(--bg1);border:1px solid var(--green);border-radius:6px;padding:12px 14px;font-family:var(--mono);font-size:12.5px;color:var(--green2);line-height:1.6;min-height:60px;white-space:pre-wrap;}
+.pii-output .redacted{background:#ef44441a;color:var(--red2);border-radius:3px;padding:0 4px;}
+.pii-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px;}
+
+/* ── EVENT TIMELINE ──────────────────────────── */
+.timeline{position:relative;padding-left:28px;margin:16px 0;}
+.timeline::before{content:'';position:absolute;left:6px;top:0;bottom:0;width:2px;background:var(--border2);}
+.tl-item{position:relative;margin-bottom:18px;}
+.tl-dot{position:absolute;left:-25px;top:4px;width:12px;height:12px;border-radius:50%;border:2px solid var(--indigo);background:var(--bg);}
+.tl-event{font-family:var(--mono);font-size:12px;color:var(--cyan2);font-weight:600;}
+.tl-payload{font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.5;}
+.tl-payload code{font-family:var(--mono);font-size:11.5px;background:var(--bg4);color:var(--indigo3);padding:1px 5px;border-radius:3px;border:1px solid var(--border2);}
+.tl-source{font-size:11px;color:var(--dim);margin-top:3px;}
+
+/* ── BLOCKED APPS ────────────────────────────── */
+.app-grid{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;}
+.app-chip{display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-size:12px;color:var(--muted);}
+.app-chip.blocked{border-color:#ef44443a;color:var(--red2);background:#2a0e0e;}
+.app-chip.incognito{border-color:#f59e0b3a;color:var(--yellow2);background:#2a1f0a;}
+
+/* ── SCHEMA BLOCK ────────────────────────────── */
+.schema-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0;}
+.schema-col-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:16px;}
+.schema-col-card h4{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:12px;}
+.col-row{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border);font-size:12.5px;}
+.col-row:last-child{border-bottom:none;}
+.col-name{font-family:var(--mono);color:var(--cyan2);}
+.col-type{font-size:11px;color:var(--dim);}
+.col-note{font-size:11px;color:var(--muted);font-style:italic;}
+
+/* ── ANNOTATION BLOCK ────────────────────────── */
+.callout{border-radius:var(--r);padding:14px 18px;margin:14px 0;font-size:13.5px;display:flex;gap:12px;align-items:flex-start;}
+.callout.info{background:#1e1f4a;border:1px solid #3730a366;color:var(--indigo3);}
+.callout.warn{background:var(--yellow-bg,#2a1f0a);border:1px solid #3d2a0866;color:var(--yellow2);}
+.callout.ok{background:#0d2920;border:1px solid #0d392066;color:var(--green2);}
+.callout.danger{background:#2a0e0e;border:1px solid #3d0e0e66;color:var(--red2);}
+.callout-icon{font-size:16px;flex-shrink:0;margin-top:1px;}
+.callout b{font-weight:700;}
+.callout code{font-family:var(--mono);font-size:12px;background:#ffffff10;padding:1px 5px;border-radius:3px;}
+
+/* ── MISC ────────────────────────────────────── */
+p{margin:0 0 13px;color:var(--text);}
+p:last-child{margin-bottom:0;}
+strong{color:#f0f4ff;font-weight:600;}
+a{color:var(--indigo2);text-decoration:none;}
+a:hover{text-decoration:underline;}
+ul,ol{padding-left:22px;margin:6px 0 14px;}
+li{margin-bottom:5px;font-size:13.5px;color:var(--text);line-height:1.6;}
+li code{font-family:var(--mono);font-size:12px;background:var(--bg4);color:var(--indigo3);padding:1px 5px;border-radius:3px;border:1px solid var(--border2);}
+hr{border:none;border-top:1px solid var(--border);margin:40px 0;}
+code{font-family:var(--mono);font-size:12.5px;background:var(--bg4);color:var(--indigo3);padding:1px 6px;border-radius:4px;border:1px solid var(--border2);}
+
+@media(max-width:900px){.sidebar{display:none;}.hero h1{font-size:26px;}.stats-row{grid-template-columns:repeat(3,1fr);}.slide,.hero{padding:40px 24px 36px;}.schema-cols{grid-template-columns:1fr;}}
+@media print{.sidebar,.toolbar,.pres-nav{display:none!important;}.content{padding:0;}.collapsible.open .collapse-body,.collapse-body{display:block!important;}}
+</style>
+</head>
+<body>
+<div id="progress-bar"></div>
+
+<!-- Presentation nav buttons -->
+<div class="pres-nav">
+  <button class="pres-btn" id="pres-prev" title="Previous (←)">&#8592;</button>
+  <div class="pres-counter" id="pres-counter">1 / 8</div>
+  <button class="pres-btn" id="pres-next" title="Next (→)">&#8594;</button>
+  <button class="pres-btn" id="pres-exit" title="Exit (Esc)" style="font-size:11px;width:auto;padding:0 10px;">Exit</button>
+</div>
+
+<div class="shell">
+<!-- ── SIDEBAR ─────────────────────────────── -->
+<nav class="sidebar">
+  <div class="toc-label">Context Memory</div>
+  <ul class="toc-list">
+    <li><a href="#hero" data-sec="hero"><span class="toc-dot"></span>Overview</a></li>
+    <li><a href="#pipeline" data-sec="pipeline"><span class="toc-dot"></span>High-Level Pipeline</a></li>
+    <li><a href="#screen-reader" data-sec="screen-reader"><span class="toc-dot"></span>Screen Reader</a></li>
+    <li class="sub"><a href="#strategies" data-sec="strategies"><span class="toc-dot"></span>Extraction Strategies</a></li>
+    <li class="sub"><a href="#vscode-detail" data-sec="vscode-detail"><span class="toc-dot"></span>VS Code Detail</a></li>
+    <li><a href="#context-watcher" data-sec="context-watcher"><span class="toc-dot"></span>Context Watcher</a></li>
+    <li class="sub"><a href="#triggers" data-sec="triggers"><span class="toc-dot"></span>Dual Triggers</a></li>
+    <li class="sub"><a href="#text-cleaning" data-sec="text-cleaning"><span class="toc-dot"></span>Text Cleaning</a></li>
+    <li class="sub"><a href="#classification" data-sec="classification"><span class="toc-dot"></span>Classification</a></li>
+    <li><a href="#privacy" data-sec="privacy"><span class="toc-dot"></span>Privacy Filter</a></li>
+    <li class="sub"><a href="#pii-demo" data-sec="pii-demo"><span class="toc-dot"></span>Live PII Demo</a></li>
+    <li><a href="#context-db" data-sec="context-db"><span class="toc-dot"></span>Context DB</a></li>
+    <li class="sub"><a href="#schema" data-sec="schema"><span class="toc-dot"></span>Schema</a></li>
+    <li><a href="#context-store" data-sec="context-store"><span class="toc-dot"></span>Context Store (TS)</a></li>
+    <li><a href="#rag" data-sec="rag"><span class="toc-dot"></span>RAG Injection</a></li>
+    <li class="sub"><a href="#bm25" data-sec="bm25"><span class="toc-dot"></span>BM25 Parameters</a></li>
+    <li class="sub"><a href="#rag-pipeline" data-sec="rag-pipeline"><span class="toc-dot"></span>10-Step Pipeline</a></li>
+    <li><a href="#ui" data-sec="ui"><span class="toc-dot"></span>UI & Events</a></li>
+    <li class="toc-divider"></li>
+    <li><a href="#tauri-commands" data-sec="tauri-commands"><span class="toc-dot"></span>Tauri Commands</a></li>
+  </ul>
+</nav>
+
+<!-- ── MAIN ───────────────────────────────── -->
+<div class="content">
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <span class="toolbar-title">Context Memory — Deep Dive</span>
+  <button class="tb-btn" id="pres-toggle">&#9654; Presentation <kbd>P</kbd></button>
+  <button class="tb-btn" id="expand-all">Expand All</button>
+  <button class="tb-btn" id="collapse-all">Collapse All</button>
+  <span class="badge badge-indigo">v0.5</span>
+  <span class="badge badge-yellow">Windows only</span>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SLIDE 1: HERO                               -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="hero slide" id="hero" data-slide="1">
+  <div class="hero-eyebrow">
+    <span class="badge badge-indigo">v0.5 Feature</span>
+    <span class="badge badge-yellow">&#9888; Windows UIAutomation</span>
+    <span class="badge badge-green">&#9679; No cloud sync</span>
+    <span class="badge badge-cyan">On-device only</span>
+  </div>
+  <h1>Context Memory</h1>
+  <p class="hero-sub">Torvi's passive background intelligence layer. Silently reads visible text from the foreground window, stores it in local SQLite, and injects the most relevant pieces into every AI prompt via BM25 retrieval — so you never copy-paste context again.</p>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-num">5</div>
+      <div class="stat-label">Rust Modules</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">&lt;50ms</div>
+      <div class="stat-label">Capture Time</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">7</div>
+      <div class="stat-label">Content Types</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">45+</div>
+      <div class="stat-label">URL Domains</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">10</div>
+      <div class="stat-label">Max RAG Chunks</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num">2s</div>
+      <div class="stat-label">Poll Interval</div>
+    </div>
+  </div>
+
+  <div class="callout info" style="margin-top:28px;">
+    <span class="callout-icon">&#8505;</span>
+    <span>No screenshots are taken. No image encoding. No vision tokens consumed. All extraction is <b>text-only</b> via Windows UIAutomation COM APIs. PII is filtered before any write to disk.</span>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SLIDE 2: HIGH-LEVEL PIPELINE               -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="slide" id="pipeline" data-slide="2" style="padding-top:48px;">
+  <h2 class="sec"><span class="sec-num">FLOW</span> High-Level Pipeline</h2>
+  <p class="sec-desc">End-to-end journey from active window to injected AI context.</p>
+
+  <!-- SVG Pipeline Diagram -->
+  <div class="pipeline-wrap">
+    <svg viewBox="0 0 820 680" width="100%" style="min-width:640px;display:block;" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#6366f1"/>
+        </marker>
+        <marker id="arr-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#10b981"/>
+        </marker>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+        </filter>
+      </defs>
+
+      <!-- Active Window -->
+      <rect x="260" y="10" width="300" height="52" rx="8" fill="#1a2235" stroke="#6366f1" stroke-width="1.5"/>
+      <text x="410" y="32" text-anchor="middle" fill="#e2e8f0" font-family="system-ui" font-size="13" font-weight="600">Active Window</text>
+      <text x="410" y="50" text-anchor="middle" fill="#8898aa" font-family="monospace" font-size="11">Foreground application</text>
+
+      <!-- Arrow 1 -->
+      <line x1="410" y1="62" x2="410" y2="88" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arr)"/>
+      <text x="420" y="79" fill="#818cf8" font-family="monospace" font-size="10">UIAutomation COM</text>
+
+      <!-- screen_reader.rs -->
+      <rect x="210" y="90" width="400" height="60" rx="8" fill="#111827" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="260" y="115" fill="#67e8f9" font-family="monospace" font-size="12" font-weight="700">screen_reader.rs</text>
+      <text x="260" y="133" fill="#8898aa" font-family="monospace" font-size="11">5-strategy text extraction · &lt;50ms · skips password fields</text>
+      <text x="582" y="115" fill="#4a5568" font-family="monospace" font-size="10" text-anchor="end">WindowContext {</text>
+      <text x="582" y="128" fill="#4a5568" font-family="monospace" font-size="10" text-anchor="end">app_name, text_content, url }</text>
+
+      <!-- Arrow 2 -->
+      <line x1="410" y1="150" x2="410" y2="178" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- privacy_filter.rs -->
+      <rect x="210" y="180" width="400" height="60" rx="8" fill="#111827" stroke="#ef4444" stroke-width="1.5"/>
+      <text x="260" y="205" fill="#fca5a5" font-family="monospace" font-size="12" font-weight="700">privacy_filter.rs</text>
+      <text x="260" y="223" fill="#8898aa" font-family="monospace" font-size="11">should_capture() · redact_sensitive() → PII → [REDACTED]</text>
+
+      <!-- Arrow 3 -->
+      <line x1="410" y1="240" x2="410" y2="268" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- app_context.rs -->
+      <rect x="160" y="270" width="500" height="80" rx="8" fill="#111827" stroke="#a855f7" stroke-width="1.5"/>
+      <text x="210" y="295" fill="#c084fc" font-family="monospace" font-size="12" font-weight="700">app_context.rs</text>
+      <text x="210" y="313" fill="#8898aa" font-family="monospace" font-size="11">clean_captured_text() · SHA-256 dedup · classify_context()</text>
+      <text x="210" y="331" fill="#8898aa" font-family="monospace" font-size="11">emit("context-captured") · WinEvent hook + 2s timer</text>
+
+      <!-- Arrow 4 -->
+      <line x1="410" y1="350" x2="410" y2="378" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- context_db.rs -->
+      <rect x="210" y="380" width="400" height="60" rx="8" fill="#111827" stroke="#f97316" stroke-width="1.5"/>
+      <text x="260" y="405" fill="#fb923c" font-family="monospace" font-size="12" font-weight="700">context_db.rs</text>
+      <text x="260" y="423" fill="#8898aa" font-family="monospace" font-size="11">direct sqlx · WAL mode · sliding_window_chunks(10_000, 1_000)</text>
+
+      <!-- Arrow 5 -->
+      <line x1="410" y1="440" x2="410" y2="468" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- SQLite -->
+      <rect x="270" y="470" width="280" height="52" rx="8" fill="#0d1220" stroke="#f59e0b" stroke-width="1.5"/>
+      <text x="410" y="493" text-anchor="middle" fill="#fcd34d" font-family="monospace" font-size="12" font-weight="700">ai_assistant.db</text>
+      <text x="410" y="511" text-anchor="middle" fill="#8898aa" font-family="monospace" font-size="11">context_chunks table · WAL · Rust+JS pools</text>
+
+      <!-- Arrow 6 -->
+      <line x1="410" y1="522" x2="410" y2="548" stroke="#10b981" stroke-width="1.5" marker-end="url(#arr-green)"/>
+
+      <!-- ai-response.function.ts -->
+      <rect x="160" y="550" width="500" height="60" rx="8" fill="#111827" stroke="#10b981" stroke-width="1.5"/>
+      <text x="210" y="575" fill="#34d399" font-family="monospace" font-size="12" font-weight="700">ai-response.function.ts</text>
+      <text x="210" y="593" fill="#8898aa" font-family="monospace" font-size="11">BM25 retrieval · 10 chunks · buildContextAwareSystemPrompt()</text>
+
+      <!-- Arrow 7 -->
+      <line x1="410" y1="610" x2="410" y2="638" stroke="#10b981" stroke-width="1.5" marker-end="url(#arr-green)"/>
+
+      <!-- AI Provider -->
+      <rect x="260" y="640" width="300" height="34" rx="8" fill="#0d2920" stroke="#10b981" stroke-width="1.5"/>
+      <text x="410" y="662" text-anchor="middle" fill="#34d399" font-family="monospace" font-size="12" font-weight="600">AI Provider → streaming response</text>
+    </svg>
+  </div>
+
+  <div class="callout ok">
+    <span class="callout-icon">&#128196;</span>
+    <span>Two parallel events flow to the UI: <code>context-captured</code> (instant, for live counter) and <code>context-chunks-saved</code> (after SQLite commits, for DB reload).</span>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SLIDE 3: SCREEN READER                     -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="slide" id="screen-reader" data-slide="3" style="padding-top:48px;">
+  <h2 class="sec"><span class="sec-num" style="background:var(--cyan);">RS</span> <span class="sec-icon" style="background:#0a1f2a;color:var(--cyan);">&#128065;</span> Screen Reader</h2>
+  <p class="sec-desc"><code>src-tauri/src/screen_reader.rs</code> — reads the foreground window text via Windows UIAutomation COM APIs. No screenshots. No image encoding. Text-only, &lt;50ms.</p>
+
+  <h3 class="sub" id="strategies">5-Strategy Extraction Fallback Chain</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Strategy</th><th>API Used</th><th>Targets</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge badge-indigo">0</span></td>
+          <td><strong>VS Code / Cursor targeted search</strong></td>
+          <td><code>AutomationId</code> match</td>
+          <td>AutomationId <code>workbench.parts.editor</code> / ClassName <code>monaco-editor</code> — bypasses sidebar, outline, status bar entirely</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-cyan">1</span></td>
+          <td><strong>IUIAutomationTextPattern on root</strong></td>
+          <td><code>IUIAutomationTextPattern</code></td>
+          <td>Word, Notepad, terminals, most native apps</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-cyan">1.5a</span></td>
+          <td><strong>Browser RootWebArea scoped</strong></td>
+          <td>TextPattern + filtered tree walk</td>
+          <td>Chrome, Edge, Brave — skips browser chrome entirely; hard-scoped to web element</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-cyan">1.5b</span></td>
+          <td><strong>First Document-type descendant</strong></td>
+          <td><code>IUIAutomationTextPattern</code></td>
+          <td>Firefox (no <code>RootWebArea</code> AutomationId)</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-purple">2</span></td>
+          <td><strong>IUIAutomationValuePattern</strong></td>
+          <td><code>IUIAutomationValuePattern</code></td>
+          <td>Single-line input fields (natively skips password fields)</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-orange">3</span></td>
+          <td><strong>Recursive tree walk (depth ≤ 15)</strong></td>
+          <td>UIA element tree</td>
+          <td>All other apps — filtered by element type; collects content types, skips chrome types</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub" id="vscode-detail">VS Code / Cursor — Strategy 0 Detail</h3>
+  <div class="collapsible open">
+    <div class="collapse-hdr" onclick="toggleCollapse(this)">
+      <span class="collapse-hdr-left"><span style="font-size:16px;">&#128268;</span> Why VS Code needs a dedicated strategy</span>
+      <span class="collapse-chevron">&#9654;</span>
+    </div>
+    <div class="collapse-body">
+      <p>VS Code's accessibility tree exposes the <em>entire IDE</em>: Explorer sidebar, Source Control panel, Outline, Timeline, NPM Scripts, Breakpoints, status bar, terminal — everything. Strategy 0 detects VS Code / Cursor via window title and searches directly for the editor pane.</p>
+      <div class="steps" style="margin-top:16px;">
+        <div class="step"><div class="step-body"><div class="step-title">Find <code>workbench.parts.editor</code></div><div class="step-desc">Search tree for AutomationId match → find all <code>Document</code> children → <code>IUIAutomationTextPattern</code> on each → keep longest result.</div></div></div>
+        <div class="step"><div class="step-body"><div class="step-title">Fallback: ClassName <code>monaco-editor</code></div><div class="step-desc">If step 1 returns empty, try ClassName match for monaco-editor → TextPattern.</div></div></div>
+        <div class="step"><div class="step-body"><div class="step-title">Scoped tree walk</div><div class="step-desc">If both fail (Welcome tab, Settings UI, extension views) → <code>walk_children()</code> scoped to the VS Code window root. Never falls to Strategy 1 which would read the full sidebar tree.</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">Browser Strategy 1.5a — RootWebArea Hard-Scoping</h3>
+  <div class="collapsible">
+    <div class="collapse-hdr" onclick="toggleCollapse(this)">
+      <span class="collapse-hdr-left"><span style="font-size:16px;">&#127760;</span> Chrome / Edge / Brave scoping detail</span>
+      <span class="collapse-chevron">&#9654;</span>
+    </div>
+    <div class="collapse-body">
+      <p>The <code>RootWebArea</code> element is <strong>hard-scoped</strong>: if TextPattern on the web element returns empty (Google Docs canvas scenario), it falls back to a filtered tree walk scoped to the web element — <em>not</em> the root window.</p>
+      <div class="callout warn">
+        <span class="callout-icon">&#9888;</span>
+        <span>A hard <code>return Ok(String::new())</code> after both attempts prevents any escape to the root-window walk that would read browser chrome again (address bar, bookmarks, tab list).</span>
+      </div>
+      <h4 class="mini">Tree Walk Filter — <code>walk_children()</code></h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px;">
+        <div>
+          <div class="badge badge-green" style="margin-bottom:8px;">&#10003; Collected types</div>
+          <p style="font-size:12.5px;color:var(--muted);">Text, Edit, Document, Hyperlink, TreeItem, DataItem, Header, ListItem, Group</p>
+        </div>
+        <div>
+          <div class="badge badge-red" style="margin-bottom:8px;">&#10005; Skipped types</div>
+          <p style="font-size:12.5px;color:var(--muted);">Button, ToolBar, MenuItem, MenuBar, ScrollBar, StatusBar, TitleBar, Separator, AppBar, TabControl, TabItem, CheckBox</p>
+        </div>
+      </div>
+      <p style="font-size:12.5px;color:var(--muted);margin-top:10px;"><strong>Depth cap:</strong> 15 levels. <strong>Raw capture limit:</strong> 20,000 chars at all strategies.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SLIDE 4: CONTEXT WATCHER                   -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="slide" id="context-watcher" data-slide="4" style="padding-top:48px;">
+  <h2 class="sec"><span class="sec-num" style="background:var(--purple);">RS</span> <span class="sec-icon" style="background:#1a0a2a;color:var(--purple2);">&#9201;</span> Context Watcher</h2>
+  <p class="sec-desc"><code>src-tauri/src/app_context.rs</code> — long-running background loop. Two triggers. One capture/emit/save pipeline.</p>
+
+  <h3 class="sub" id="triggers">Dual Triggers</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0 28px;">
+    <div class="card">
+      <div class="card-title"><span class="card-icon" style="background:#1e1f4a;color:var(--indigo2);">A</span> WinEvent Hook</div>
+      <div class="card-body">
+        <p><code>SetWinEventHook EVENT_SYSTEM_FOREGROUND</code></p>
+        <p style="margin-top:8px;">Fires instantly (&lt;1ms) on foreground window switch. Lives on a <strong>dedicated OS thread</strong> with a Win32 message pump. Sends signal via <code>mpsc::channel(4)</code>.</p>
+        <p style="margin-top:8px;"><span class="badge badge-yellow" style="font-size:10px;">300ms debounce</span> — waits for new window to finish painting before UIAutomation reads.</p>
+        <p style="margin-top:8px;"><strong>Always re-captures</strong> even if content hash matches — window switch forces re-emit to keep UI timestamp fresh.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="card-icon" style="background:#0a1f2a;color:var(--cyan2);">B</span> 2-Second Timer</div>
+      <div class="card-body">
+        <p><code>tokio::time::interval(2s)</code></p>
+        <p style="margin-top:8px;">Catches content changes <em>inside</em> the same window — user typing, page loading, dynamic content updates.</p>
+        <p style="margin-top:8px;">On timer trigger with <strong>unchanged hash</strong>: skips re-capture unless last emit was &gt;<code>360s</code> ago (STALE_SECS) — forces re-emit so AI context does not go dark during long reading sessions.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub" id="text-cleaning">Text Cleaning — <code>clean_captured_text()</code></h3>
+  <p style="margin-bottom:14px;color:var(--muted);font-size:13.5px;">Applied before SHA-256 hashing. Strips UI chrome, noise, and non-semantic content.</p>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Filter</th><th>What it removes</th></tr></thead>
+      <tbody>
+        <tr><td><code>U+FFFC strip</code></td><td>Object Replacement Characters (icon placeholders from accessibility trees)</td></tr>
+        <tr><td><code>C0/C1 control chars</code></td><td>Non-printable control chars (keeps <code>\n</code>, <code>\r</code>, <code>\t</code>)</td></tr>
+        <tr><td><strong>Short lines</strong></td><td>Lines &lt; 3 printable chars (badge numbers, single letters)</td></tr>
+        <tr><td><strong>Pure-numeric lines</strong></td><td>Lines with only digits + <code>+:,./°%</code> — catches <code>"100%"</code>, <code>"10.5"</code>, <code>"99+"</code>, <code>"09:41"</code></td></tr>
+        <tr><td><code>UI_NOISE_LINES</code></td><td>~100 known UI chrome strings in 4 categories (VS Code panels, generic app chrome, chat/AI UI, browser chrome)</td></tr>
+        <tr><td><strong>Shortcut tooltip lines</strong></td><td>Lines ending with <code>)</code> AND containing <code>(Ctrl+</code>, <code>(Alt+</code> etc. e.g. <code>"Bold (Ctrl+B)"</code></td></tr>
+        <tr><td><strong>ARIA state lines</strong></td><td>Lines ending with <code>" selected."</code> or <code>" selected"</code> — e.g. <code>"Normal text selected."</code></td></tr>
+        <tr><td><strong>Separator lines</strong></td><td>Lines where ≥60% of chars are punctuation (<code>─━═-=·•|\~</code>)</td></tr>
+        <tr><td><strong>Blank line collapse</strong></td><td>Multiple consecutive blank lines → one blank line</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="collapsible">
+    <div class="collapse-hdr" onclick="toggleCollapse(this)">
+      <span class="collapse-hdr-left"><span style="font-size:16px;">&#128196;</span> UI_NOISE_LINES — ~100 exact-match strings in 4 categories</span>
+      <span class="collapse-chevron">&#9654;</span>
+    </div>
+    <div class="collapse-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div><h4 class="mini">VS Code Sidebar/Panel</h4><p style="font-size:12.5px;color:var(--muted);">OUTLINE, TIMELINE, NPM SCRIPTS, BREAKPOINTS, CALL STACK, VARIABLES, WATCH, SOURCE CONTROL, TERMINAL, PORTS, …</p></div>
+        <div><h4 class="mini">Generic App Chrome</h4><p style="font-size:12.5px;color:var(--muted);">New Tab, Close, Minimize, Back, Forward, Settings, Help, Cancel, Done, Submit, OK, …</p></div>
+        <div><h4 class="mini">Chat / AI UI</h4><p style="font-size:12.5px;color:var(--muted);">Chats, Projects, Artifacts, Free plan, Upgrade, Stop generating, Regenerate, Copy code, Sign in, Sign out, …</p></div>
+        <div><h4 class="mini">Browser Chrome</h4><p style="font-size:12.5px;color:var(--muted);">Address and search bar, Bookmarks, History, Downloads, New incognito window, Pin tab, Close tab, …</p></div>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">Google Workspace Guard</h3>
+  <div class="callout warn">
+    <span class="callout-icon">&#9888;</span>
+    <span>After cleaning, if the URL contains <code>docs.google.com/document</code>, <code>/spreadsheets</code>, or <code>/presentation</code> AND cleaned text has &lt;150 alphanumeric characters: skips save entirely and emits <code>"google-docs-needs-screen-reader"</code> event to prompt the user to enable <strong>Ctrl+Alt+Z</strong> (Google Docs screen reader mode).</span>
+  </div>
+
+  <h3 class="sub" id="classification">Window Title Parsing & Content Classification</h3>
+  <div class="collapsible open">
+    <div class="collapse-hdr" onclick="toggleCollapse(this)">
+      <span class="collapse-hdr-left"><span style="font-size:16px;">&#128196;</span> Window title examples (<code>parse_window_title</code>)</span>
+      <span class="collapse-chevron">&#9654;</span>
+    </div>
+    <div class="collapse-body">
+      <div class="tbl-wrap" style="margin:0;">
+        <table>
+          <thead><tr><th>App</th><th>Raw Title</th><th>Stored As</th></tr></thead>
+          <tbody>
+            <tr><td>VS Code / Cursor</td><td><code>main.rs — torvi — Visual Studio Code</code></td><td><code>main.rs | torvi</code></td></tr>
+            <tr><td>Slack</td><td><code>#engineering — Acme HQ</code></td><td><code>#engineering | Acme HQ</code></td></tr>
+            <tr><td>Teams (chat)</td><td><code>General | Engineering | Microsoft Teams</code></td><td><code>General | Engineering</code></td></tr>
+            <tr><td>Teams (meeting)</td><td><code>Weekly Sync | Microsoft Teams</code></td><td><code>Weekly Sync</code> (type → <code>meeting</code>)</td></tr>
+            <tr><td>Word / Excel / PPT</td><td><code>Q3 Report.docx - Microsoft Word</code></td><td><code>Q3 Report.docx</code></td></tr>
+            <tr><td>Outlook</td><td><code>RE: Budget Review - Outlook</code></td><td><code>RE: Budget Review</code></td></tr>
+            <tr><td>Generic</td><td><code>Foo - Bar - AppName</code></td><td><code>Foo | Bar</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="collapsible" style="margin-top:10px;">
+    <div class="collapse-hdr" onclick="toggleCollapse(this)">
+      <span class="collapse-hdr-left"><span style="font-size:16px;">&#127760;</span> Content Classification — 7 types, 45+ URL domains</span>
+      <span class="collapse-chevron">&#9654;</span>
+    </div>
+    <div class="collapse-body">
+      <div class="tbl-wrap" style="margin:0;">
+        <table>
+          <thead><tr><th>Type</th><th>URL Domains (examples)</th><th>App Names</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge badge-red">email</span></td><td>gmail.com, outlook.live.com, mail.yahoo.com, protonmail.com</td><td>Outlook, Thunderbird, Mailspring</td></tr>
+            <tr><td><span class="badge badge-cyan">project_management</span></td><td>linear.app, jira.atlassian.com, trello.com, asana.com, monday.com, notion.so</td><td>—</td></tr>
+            <tr><td><span class="badge badge-indigo">code</span></td><td>github.com, gitlab.com, bitbucket.org</td><td>VS Code, Cursor, PyCharm, WebStorm, CLion, GoLand, Vim, Neovim, Emacs</td></tr>
+            <tr><td><span class="badge badge-green">chat</span></td><td>slack.com, discord.com, teams.microsoft.com (non-meeting)</td><td>Slack, Teams (chat), Discord, WhatsApp</td></tr>
+            <tr><td><span class="badge badge-purple">meeting</span></td><td>zoom.us, meet.google.com, whereby.com</td><td>Zoom, Teams (meeting)</td></tr>
+            <tr><td><span class="badge badge-yellow">document</span></td><td>docs.google.com, notion.so, confluence.atlassian.com</td><td>Word, Excel, PowerPoint</td></tr>
+            <tr><td><span class="badge badge-orange">design</span></td><td>figma.com, miro.com, canva.com</td><td>Figma, Miro</td></tr>
+            <tr><td><span class="badge" style="background:var(--bg3);color:var(--muted);border:1px solid var(--border);">generic</span></td><td colspan="2">Everything else</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info" style="margin-top:12px;">
+        <span class="callout-icon">&#8505;</span>
+        <span><strong>Meeting override:</strong> Title containing <code>"meeting"</code>, <code>"call"</code>, <code>"conference"</code>, or <code>"join now"</code> forces type → <code>meeting</code> regardless of URL/app.</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SLIDE 5: PRIVACY FILTER                    -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="slide" id="privacy" data-slide="5" style="padding-top:48px;">
+  <h2 class="sec"><span class="sec-num" style="background:var(--red);">RS</span> <span class="sec-icon" style="background:#2a0e0e;color:var(--red2);">&#128274;</span> Privacy Filter</h2>
+  <p class="sec-desc"><code>src-tauri/src/privacy_filter.rs</code> — applied before any text is stored or emitted. PII is <strong>never written to disk</strong>.</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0 24px;">
+    <div>
+      <h3 class="sub">Layer 1 — <code>should_capture()</code></h3>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Drops the <em>entire snapshot</em> for these apps/contexts:</p>
+      <div class="app-grid">
+        <span class="app-chip blocked">&#128274; 1Password</span>
+        <span class="app-chip blocked">&#128274; KeePass</span>
+        <span class="app-chip blocked">&#128274; KeePassXC</span>
+        <span class="app-chip blocked">&#128274; Bitwarden</span>
+        <span class="app-chip blocked">&#128274; Dashlane</span>
+        <span class="app-chip blocked">&#128274; LastPass</span>
+        <span class="app-chip blocked">&#128274; Enpass</span>
+        <span class="app-chip blocked">&#128274; RoboForm</span>
+        <span class="app-chip blocked">&#128274; Mint (finance)</span>
+        <span class="app-chip blocked">&#128274; credui / consent</span>
+        <span class="app-chip blocked">&#128274; logonui</span>
+        <span class="app-chip blocked">&#128274; mstsc (RDP)</span>
+        <span class="app-chip blocked">&#128274; lockapp</span>
+        <span class="app-chip blocked">&#128274; taskmgr</span>
+        <span class="app-chip blocked">&#128274; Torvi itself</span>
+        <span class="app-chip incognito">&#127366; InPrivate tabs</span>
+        <span class="app-chip incognito">&#127366; Incognito tabs</span>
+        <span class="app-chip incognito">&#127366; Private Browsing</span>
+      </div>
+    </div>
+    <div>
+      <h3 class="sub">Layer 2 — <code>redact_sensitive()</code></h3>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Replaces matched patterns with <code>[REDACTED]</code>:</p>
+      <div class="collapsible open">
+        <div class="collapse-hdr" onclick="toggleCollapse(this)" style="padding:10px 14px;">
+          <span class="collapse-hdr-left" style="font-size:12.5px;"><span style="font-size:14px;">&#128179;</span> Credit/debit card numbers</span>
+          <span class="collapse-chevron">&#9654;</span>
+        </div>
+        <div class="collapse-body" style="padding:10px 14px 8px;">
+          <code style="font-size:11.5px;">\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}</code>
+        </div>
+      </div>
+      <div class="collapsible open">
+        <div class="collapse-hdr" onclick="toggleCollapse(this)" style="padding:10px 14px;">
+          <span class="collapse-hdr-left" style="font-size:12.5px;"><span style="font-size:14px;">&#127482;&#127480;</span> US Social Security Numbers</span>
+          <span class="collapse-chevron">&#9654;</span>
+        </div>
+        <div class="collapse-body" style="padding:10px 14px 8px;">
+          <code style="font-size:11.5px;">\d{3}-\d{2}-\d{4}</code>
+        </div>
+      </div>
+      <div class="collapsible open">
+        <div class="collapse-hdr" onclick="toggleCollapse(this)" style="padding:10px 14px;">
+          <span class="collapse-hdr-left" style="font-size:12.5px;"><span style="font-size:14px;">&#128273;</span> API Keys (10+ prefixes)</span>
+          <span class="collapse-chevron">&#9654;</span>
+        </div>
+        <div class="collapse-body" style="padding:10px 14px 8px;">
+          <code style="font-size:11.5px;">sk-ant-, sk-, pk-, ghp_, ghs_, glpat-, AIza, AKIA</code> + 20+ chars
+        </div>
+      </div>
+      <div class="collapsible open">
+        <div class="collapse-hdr" onclick="toggleCollapse(this)" style="padding:10px 14px;">
+          <span class="collapse-hdr-left" style="font-size:12.5px;"><span style="font-size:14px;">&#128242;</span> 6-digit OTP / 2FA codes</span>
+          <span class="collapse-chevron">&#9654;</span>
+        </div>
+        <div class="collapse-body" style="padding:10px 14px 8px;">
+          <code style="font-size:11.5px;">\b\d{6}\b</code> in context suggesting OTP
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub" id="pii-demo">&#9883; Live PII Redaction Demo</h3>
+  <div class="pii-demo">
+    <div class="pii-label">Input (try pasting text with PII)</div>
+    <textarea id="pii-input" placeholder="Try: My card is 4111 1111 1111 1111, SSN 123-45-6789, API key sk-abc123def456ghi789jkl012&#10;Or: OTP is 847291&#10;Or: token ghp_AbCdEfGhIjKlMnOpQrStUvWxYz1234">My card is 4111 1111 1111 1111, SSN 123-45-6789
+API key sk-abc123def456ghi789jkl0123456789
+GitHub token ghp_AbCdEfGhIjKlMnOpQrStUvWxYz1234
+OTP code: 847291
+Normal text is left alone.</textarea>
+    <div class="pii-label" style="margin-top:12px;">Output (after redaction)</div>
+    <div class="pii-output" id="pii-output"></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SLIDE 6: CONTEXT DB                        -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="slide" id="context-db" data-slide="6" style="padding-top:48px;">
+  <h2 class="sec"><span class="sec-num" style="background:var(--orange);">RS</span> <span class="sec-icon" style="background:#2a1500;color:var(--orange);">&#128452;</span> Context DB</h2>
+  <p class="sec-desc"><code>src-tauri/src/context_db.rs</code> — direct <code>sqlx</code> SQLite writer. Bypasses <code>tauri-plugin-sql</code> IPC entirely (the JS IPC path silently dropped writes with <code>rowsAffected=0</code>).</p>
+
+  <div class="callout danger">
+    <span class="callout-icon">&#128681;</span>
+    <span><strong>Why bypass tauri-plugin-sql?</strong> The JS IPC path silently dropped INSERT statements — <code>rowsAffected = 0</code>, no error, no log. Direct <code>sqlx</code> writes from Rust work reliably. WAL journal mode allows both pools to coexist on the same file without blocking reads.</span>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:20px 0;">
+    <div class="card">
+      <div class="card-title"><span class="card-icon" style="background:#2a1500;color:var(--orange);">&#128203;</span> Rust Pool (sqlx)</div>
+      <div class="card-body"><p>All <strong>writes</strong> — INSERT chunks, schema migrations. <code>max_connections=1</code>. WAL mode.</p></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="card-icon" style="background:#1e1f4a;color:var(--indigo2);">&#128196;</span> JS Pool (tauri-plugin-sql)</div>
+      <div class="card-body"><p>All <strong>reads</strong> — <code>getRecentContext()</code>, UI queries. Read-only access to the same <code>ai_assistant.db</code>.</p></div>
+    </div>
+  </div>
+
+  <h3 class="sub" id="schema">Schema — <code>context_chunks</code> table</h3>
+  <div class="code-file">
+    <div class="code-header">
+      <span class="code-path">src-tauri/src/context_db.rs</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="code-lang">SQL</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+    </div>
+    <pre class="code-body"><span class="kw">CREATE TABLE IF NOT EXISTS</span> context_chunks (
+  id                <span class="ty">TEXT</span>    <span class="kw">PRIMARY KEY</span>,        <span class="cm">-- UUID v4</span>
+  app_name          <span class="ty">TEXT</span>    <span class="kw">NOT NULL</span>,
+  window_title      <span class="ty">TEXT</span>    <span class="kw">NOT NULL</span>,
+  content_type      <span class="ty">TEXT</span>    <span class="kw">NOT NULL</span>,
+  text_content      <span class="ty">TEXT</span>    <span class="kw">NOT NULL</span>,             <span class="cm">-- one sliding-window chunk</span>
+  content_hash      <span class="ty">TEXT</span>    <span class="kw">NOT NULL</span>,             <span class="cm">-- SHA-256 of full cleaned text</span>
+  captured_at       <span class="ty">INTEGER</span> <span class="kw">NOT NULL</span>,             <span class="cm">-- Unix timestamp seconds</span>
+  url               <span class="ty">TEXT</span>,
+  parent_capture_id <span class="ty">TEXT</span>,
+  chunk_index       <span class="ty">INTEGER</span> <span class="kw">NOT NULL DEFAULT</span> <span class="num">0</span>
+);
+
+<span class="cm">-- 5 indexes for fast queries</span>
+<span class="kw">CREATE INDEX</span> idx_ctx_captured_at  <span class="kw">ON</span> context_chunks(captured_at <span class="kw">DESC</span>);
+<span class="kw">CREATE INDEX</span> idx_ctx_hash         <span class="kw">ON</span> context_chunks(content_hash);
+<span class="kw">CREATE INDEX</span> idx_ctx_app          <span class="kw">ON</span> context_chunks(app_name);
+<span class="kw">CREATE INDEX</span> idx_ctx_app_time     <span class="kw">ON</span> context_chunks(app_name, captured_at <span class="kw">DESC</span>);
+<span class="kw">CREATE INDEX</span> idx_ctx_parent       <span class="kw">ON</span> context_chunks(parent_capture_id);</pre>
+  </div>
+
+  <h3 class="sub">Chunking Strategy</h3>
+  <div class="cards">
+    <div class="card">
+      <div class="card-title"><span class="card-icon" style="background:#0a1f2a;color:var(--cyan2);">&#128200;</span> Window Size</div>
+      <div class="card-body"><p><strong style="font-size:20px;color:#fff;">10,000</strong> chars per chunk<br><span style="font-size:12px;color:var(--dim);">≈ 2,500 tokens — holds a complete function with surrounding context</span></p></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="card-icon" style="background:#1a0a2a;color:var(--purple2);">&#128257;</span> Overlap</div>
+      <div class="card-body"><p><strong style="font-size:20px;color:#fff;">1,000</strong> chars (10%)<br><span style="font-size:12px;color:var(--dim);">Prevents BM25 from missing a hit spanning a chunk boundary</span></p></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="card-icon" style="background:#0d2920;color:var(--green2);">&#128465;</span> Min Chunk</div>
+      <div class="card-body"><p><strong style="font-size:20px;color:#fff;">20</strong> chars minimum<br><span style="font-size:12px;color:var(--dim);">Chunks shorter than 20 chars are dropped silently</span></p></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="card-icon" style="background:#2a1f0a;color:var(--yellow2);">&#128279;</span> ID Linkage</div>
+      <div class="card-body"><p>Chunk 0: <code>parent_capture_id = NULL</code><br>Chunks 1..N: parent = first chunk ID + positional hash suffix <code>"hash:N"</code></p></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="card-icon" style="background:#2a0e0e;color:var(--red2);">&#10074;</span> Dedup Window</div>
+      <div class="card-body"><p>SHA-256 hash checked against last <strong>5-minute window</strong>. Matching hash within 5min → skip INSERT entirely.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SLIDE 7: RAG INJECTION                     -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="slide" id="rag" data-slide="7" style="padding-top:48px;">
+  <h2 class="sec"><span class="sec-num" style="background:var(--green);">TS</span> <span class="sec-icon" style="background:#0d2920;color:var(--green2);">&#129302;</span> RAG Injection — BM25</h2>
+  <p class="sec-desc"><code>src/lib/functions/ai-response.function.ts</code> — called before every AI request via <code>buildContextAwareSystemPrompt()</code>. Search engine: BM25 keyword TF-IDF ranking.</p>
+
+  <h3 class="sub" id="context-store">Context Store — TypeScript Read Layer</h3>
+  <p style="color:var(--muted);font-size:13.5px;margin-bottom:14px;"><code>src/lib/database/context-store.ts</code> — uses <code>tauri-plugin-sql</code> for all SELECT queries.</p>
+  <div class="code-file">
+    <div class="code-header">
+      <span class="code-path">src/lib/database/context-store.ts</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="code-lang">TypeScript</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+    </div>
+    <pre class="code-body"><span class="cm">// Fetch N most recent chunks from the last M minutes</span>
+<span class="kw">async function</span> <span class="fn">getRecentContext</span>(limit: <span class="ty">number</span>, minutesBack: <span class="ty">number</span>): <span class="ty">Promise</span>&lt;<span class="ty">ContextChunk</span>[]&gt;
+
+<span class="cm">// Delete chunks older than 24 hours</span>
+<span class="cm">// Called on app startup + 1-hour setInterval in main.tsx</span>
+<span class="kw">async function</span> <span class="fn">pruneOldContext</span>(): <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt;
+
+<span class="cm">// Ensures schema exists (safety net — primary owner is context_db.rs)</span>
+<span class="kw">async function</span> <span class="fn">initContextStore</span>(): <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt;
+
+<span class="cm">// saveContextChunk() still exists but is NO LONGER CALLED</span>
+<span class="cm">// All writes are Rust-only via context_db.rs</span></pre>
+  </div>
+
+  <h3 class="sub" id="bm25">BM25 Parameters Dashboard</h3>
+  <div class="param-grid">
+    <div class="param-card"><div class="param-name">RAG_MAX_CHUNKS</div><div class="param-val">10</div><div class="param-desc">Hard cap on total injected chunks per AI request</div></div>
+    <div class="param-card"><div class="param-name">RAG_CHUNK_CHAR_LIMIT</div><div class="param-val">2,000</div><div class="param-desc">Max chars per injected chunk (≈ 500 tokens)</div></div>
+    <div class="param-card"><div class="param-name">RAG_MAX_CHUNKS_PER_APP</div><div class="param-val">3</div><div class="param-desc">Max chunks from the same <code>app_name</code></div></div>
+    <div class="param-card"><div class="param-name">BM25_K1</div><div class="param-val">1.5</div><div class="param-desc">Term-frequency saturation constant</div></div>
+    <div class="param-card"><div class="param-name">BM25_B</div><div class="param-val">0.75</div><div class="param-desc">Document-length normalisation factor</div></div>
+    <div class="param-card"><div class="param-name">BM25_MIN_SCORE</div><div class="param-val">0.5</div><div class="param-desc">Minimum relevance score to survive filter</div></div>
+    <div class="param-card"><div class="param-name">RECENCY_BONUS</div><div class="param-val">+3.0</div><div class="param-desc">Additive score boost for chunks &lt; 5 min old</div></div>
+    <div class="param-card"><div class="param-name">RECENCY_FRESH_SECS</div><div class="param-val">300s</div><div class="param-desc">Fresh-chunk window (5 minutes)</div></div>
+    <div class="param-card"><div class="param-name">RAG_OVERHEAD_RESERVE</div><div class="param-val">20,000</div><div class="param-desc">Chars reserved for system prompt + history before RAG budget is counted</div></div>
+  </div>
+
+  <h3 class="sub" id="rag-pipeline">10-Step Retrieval Pipeline</h3>
+  <div class="steps">
+    <div class="step"><div class="step-body"><div class="step-title">Over-fetch</div><div class="step-desc"><code>getRecentContext(20, 30)</code> — 20 candidate chunks from the last 30 minutes.</div></div></div>
+    <div class="step"><div class="step-body"><div class="step-title">Tokenise corpus</div><div class="step-desc"><code>[a-z0-9_]{3,}</code> tokens; <code>buildCorpus()</code> computes IDF statistics across all candidates.</div></div></div>
+    <div class="step"><div class="step-body"><div class="step-title">Tokenise query</div><div class="step-desc">Current message + last 3 user turns → deduplicated token set.</div></div></div>
+    <div class="step"><div class="step-body"><div class="step-title">BM25 score</div><div class="step-desc">Robertson–Spärck Jones IDF formula per chunk. Parameters: <code>k1=1.5</code>, <code>b=0.75</code>.</div></div></div>
+    <div class="step"><div class="step-body"><div class="step-title">Recency bonus</div><div class="step-desc">Add <code>+3.0</code> to chunks captured &lt; 5 min ago (<code>RECENCY_FRESH_SECS=300</code>).</div></div></div>
+    <div class="step"><div class="step-body"><div class="step-title">Filter</div><div class="step-desc">Drop chunks with score &lt; <code>BM25_MIN_SCORE (0.5)</code>.</div></div></div>
+    <div class="step"><div class="step-body"><div class="step-title">Sort</div><div class="step-desc">Descending by final score.</div></div></div>
+    <div class="step"><div class="step-body"><div class="step-title">Per-app dedup</div><div class="step-desc">First (highest-scoring) occurrence per <code>app_name</code>; up to 3 chunks per app (<code>RAG_MAX_CHUNKS_PER_APP</code>).</div></div></div>
+    <div class="step"><div class="step-body"><div class="step-title">Hard cap</div><div class="step-desc"><code>slice(0, 10)</code> — never inject more than <code>RAG_MAX_CHUNKS</code> chunks.</div></div></div>
+    <div class="step"><div class="step-body"><div class="step-title">Truncate &amp; inject</div><div class="step-desc">Each chunk truncated to 2,000 chars at a line boundary. Injected as a <code>## Current Screen Context</code> block in the system prompt.</div></div></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SLIDE 8: UI & EVENTS                       -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="slide" id="ui" data-slide="8" style="padding-top:48px;">
+  <h2 class="sec"><span class="sec-num" style="background:var(--cyan);">TS</span> <span class="sec-icon" style="background:#0a1f2a;color:var(--cyan2);">&#128187;</span> UI & Events</h2>
+  <p class="sec-desc"><code>src/pages/context-memory/index.tsx</code> + <code>src/pages/app/index.tsx</code> — the live UI layer built on top of the Rust pipeline.</p>
+
+  <h3 class="sub">Event Timeline — Backend → Frontend</h3>
+  <div class="timeline">
+    <div class="tl-item">
+      <div class="tl-dot" style="border-color:var(--purple2);"></div>
+      <div class="tl-event">context-captured</div>
+      <div class="tl-payload">Emitted by <code>app_context.rs</code> after cleaning &amp; dedup. Payload: <code>AppContextSnapshot</code> with <code>app_name, window_title, text_content, content_type, content_hash, url, captured_at</code></div>
+      <div class="tl-source">UI reaction: increments session counter · lights the live "Watching" dot · triggers proactive suggestion chips in overlay</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-dot" style="border-color:var(--orange);"></div>
+      <div class="tl-event">context-chunks-saved</div>
+      <div class="tl-payload">Emitted by <code>context_db.rs</code> after all SQLite INSERTs commit.</div>
+      <div class="tl-source">UI reaction: triggers <code>loadChunks()</code> to reload the DB view — ensures UI shows committed data, not just event data</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-dot" style="border-color:var(--yellow2);"></div>
+      <div class="tl-event">google-docs-needs-screen-reader</div>
+      <div class="tl-payload">Emitted when Google Docs URL detected but text &lt; 150 chars (canvas-rendered document body invisible without screen reader mode).</div>
+      <div class="tl-source">UI reaction: shows a dismissable yellow banner prompting <kbd>Ctrl+Alt+Z</kbd> in Google Docs</div>
+    </div>
+  </div>
+
+  <h3 class="sub">Context Memory Page Features</h3>
+  <div class="cards" style="margin-top:14px;">
+    <div class="card">
+      <div class="card-title"><span style="font-size:16px;">&#127968;</span> Filter Tabs</div>
+      <div class="card-body">All / Code / Docs / Email / Chat / Meeting / PM / Generic — filters <code>context_chunks</code> by <code>content_type</code></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="font-size:16px;">&#9208;</span> Pause / Resume</div>
+      <div class="card-body">Calls <code>stop_context_watcher</code> / <code>start_context_watcher</code> Tauri commands. Intent stored in <code>localStorage["ctx_watcher_paused"]</code> — shared across all webviews.</div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="font-size:16px;">&#128465;</span> Clear</div>
+      <div class="card-body">Calls <code>pruneOldContext()</code> to wipe all chunks from SQLite.</div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="font-size:16px;">&#128260;</span> Focus Reload</div>
+      <div class="card-body"><code>onFocusChanged</code> re-fetches DB when user returns to Torvi dashboard window.</div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="font-size:16px;">&#9201;</span> Periodic Refresh</div>
+      <div class="card-body"><code>setInterval(loadChunks, 30_000)</code> keeps timestamps current while page is open.</div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="font-size:16px;">&#128994;</span> Watcher Status Polling</div>
+      <div class="card-body"><code>setInterval(get_watcher_status, 2_000)</code> syncs <code>isPaused</code> / <code>isWatching</code> with external changes (e.g. paused from Sidebar). Updates within ≤ 2s.</div>
+    </div>
+  </div>
+
+  <h3 class="sub">Proactive Suggestion Chips</h3>
+  <div class="callout info">
+    <span class="callout-icon">&#128161;</span>
+    <span>Shown <strong>below</strong> the pill-bar toolbar (<code>src/pages/app/index.tsx</code>) when <code>context-captured</code> fires with a new <code>app_name</code>. Auto-dismiss after <strong>30 seconds</strong>. Provides quick-action prompts relevant to the currently-active app type (e.g. "Summarise this code", "Draft a reply" for email).</span>
+  </div>
+
+  <!-- ── TAURI COMMANDS ─────────────────────── -->
+  <h2 class="sec" id="tauri-commands" style="margin-top:48px;"><span class="sec-num" style="background:var(--indigo);">IPC</span> Tauri Commands</h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Command</th><th>Module</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>start_context_watcher</code></td><td><code>app_context.rs</code></td><td>Start background polling — no-op if already running</td></tr>
+        <tr><td><code>stop_context_watcher</code></td><td><code>app_context.rs</code></td><td>Stop background polling</td></tr>
+        <tr><td><code>get_watcher_status</code></td><td><code>app_context.rs</code></td><td>Returns <code>{ running: bool }</code> — polled every 2s by UI</td></tr>
+        <tr><td><code>read_active_window_context</code></td><td><code>screen_reader.rs</code></td><td>One-shot foreground window text read</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub">Design Constraints</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0;">
+    <div class="callout info" style="margin:0;">
+      <span class="callout-icon">&#127988;</span>
+      <span><strong>Windows-only.</strong> UIAutomation is a Windows API. macOS/Linux return an error gracefully.</span>
+    </div>
+    <div class="callout ok" style="margin:0;">
+      <span class="callout-icon">&#128279;</span>
+      <span><strong>WAL mode.</strong> Rust sqlx pool can write concurrently with the JS-side read pool without blocking.</span>
+    </div>
+    <div class="callout warn" style="margin:0;">
+      <span class="callout-icon">&#9201;</span>
+      <span><strong>24h rolling window</strong> enforced on <em>retrieval</em>, not on storage. Keeps knowledge base fresh.</span>
+    </div>
+  </div>
+</section>
+
+</div><!-- /content -->
+</div><!-- /shell -->
+
+<script>
+// ── Progress bar ────────────────────────────────────────────────
+const bar = document.getElementById('progress-bar');
+document.addEventListener('scroll', () => {
+  const pct = window.scrollY / (document.documentElement.scrollHeight - window.innerHeight) * 100;
+  bar.style.width = pct + '%';
+});
+
+// ── TOC scroll-spy ──────────────────────────────────────────────
+const tocLinks = document.querySelectorAll('.toc-list a');
+const sections = Array.from(document.querySelectorAll('[id]')).filter(el => el.id);
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      tocLinks.forEach(a => a.classList.remove('active'));
+      const a = document.querySelector(`.toc-list a[href="#${e.target.id}"]`);
+      if (a) a.classList.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+sections.forEach(s => observer.observe(s));
+
+// ── Collapsible accordion ───────────────────────────────────────
+function toggleCollapse(hdr) {
+  hdr.closest('.collapsible').classList.toggle('open');
+}
+document.getElementById('expand-all').addEventListener('click', () =>
+  document.querySelectorAll('.collapsible').forEach(c => c.classList.add('open')));
+document.getElementById('collapse-all').addEventListener('click', () =>
+  document.querySelectorAll('.collapsible').forEach(c => c.classList.remove('open')));
+
+// ── Copy buttons ────────────────────────────────────────────────
+function copyCode(btn) {
+  const code = btn.closest('.code-file').querySelector('pre').innerText;
+  navigator.clipboard.writeText(code).then(() => {
+    btn.textContent = '✓ Copied'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// ── Presentation mode ───────────────────────────────────────────
+let presMode = false, presSlide = 1;
+const slides = Array.from(document.querySelectorAll('.slide'));
+const total = slides.length;
+
+function enterPres() {
+  presMode = true; document.body.classList.add('pres-mode');
+  document.getElementById('pres-toggle').classList.add('active');
+  gotoSlide(presSlide);
+  window.scrollTo(0, 0);
+}
+function exitPres() {
+  presMode = false; document.body.classList.remove('pres-mode');
+  document.getElementById('pres-toggle').classList.remove('active');
+  slides.forEach(s => { s.classList.remove('active-slide'); });
+}
+function gotoSlide(n) {
+  presSlide = Math.max(1, Math.min(n, total));
+  slides.forEach(s => { s.classList.remove('active-slide'); });
+  const target = slides[presSlide - 1];
+  if (target) { target.classList.add('active-slide'); target.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  document.getElementById('pres-counter').textContent = presSlide + ' / ' + total;
+}
+document.getElementById('pres-toggle').addEventListener('click', () => presMode ? exitPres() : enterPres());
+document.getElementById('pres-prev').addEventListener('click', () => gotoSlide(presSlide - 1));
+document.getElementById('pres-next').addEventListener('click', () => gotoSlide(presSlide + 1));
+document.getElementById('pres-exit').addEventListener('click', exitPres);
+document.addEventListener('keydown', e => {
+  if (e.key === 'p' || e.key === 'P') { presMode ? exitPres() : enterPres(); }
+  if (!presMode) return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); gotoSlide(presSlide + 1); }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); gotoSlide(presSlide - 1); }
+  if (e.key === 'Escape') exitPres();
+});
+
+// ── PII Redaction Demo ──────────────────────────────────────────
+const piiInput = document.getElementById('pii-input');
+const piiOutput = document.getElementById('pii-output');
+function redactPII(text) {
+  const patterns = [
+    { re: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, label: '[REDACTED:CARD]' },
+    { re: /\b\d{3}-\d{2}-\d{4}\b/g, label: '[REDACTED:SSN]' },
+    { re: /\b(sk-ant-|sk-|pk-|ghp_|ghs_|glpat-|AIza|AKIA)[A-Za-z0-9_\-]{16,}/g, label: '[REDACTED:API_KEY]' },
+    { re: /\b\d{6}\b/g, label: '[REDACTED:OTP]' },
+  ];
+  let result = text;
+  patterns.forEach(p => { result = result.replace(p.re, p.label); });
+  return result;
+}
+function renderPII() {
+  const raw = piiInput.value;
+  const redacted = redactPII(raw);
+  piiOutput.innerHTML = redacted
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\[REDACTED:[A-Z_]+\]/g, m => `<span class="redacted">${m}</span>`);
+}
+piiInput.addEventListener('input', renderPII);
+renderPII();
+</script>
+</body>
+</html>

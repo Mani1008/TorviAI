@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Company Brain — Vision, Gap Analysis &amp; Roadmap</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --bg-card: #161b27;
+      --bg-code: #1a2030;
+      --bg-table-head: #1e2538;
+      --bg-table-row: #141926;
+      --border: #2a3350;
+      --border-light: #1e2840;
+      --text: #e2e8f0;
+      --text-muted: #8898aa;
+      --text-dim: #64748b;
+      --accent: #6366f1;
+      --accent-soft: #818cf8;
+      --accent-bg: #1e1f4a;
+      --green: #10b981;
+      --green-bg: #0d2920;
+      --yellow: #f59e0b;
+      --yellow-bg: #2a1f0a;
+      --red: #ef4444;
+      --red-bg: #2a0e0e;
+      --orange: #f97316;
+      --orange-bg: #2a1500;
+      --toc-bg: #121826;
+      --radius: 8px;
+      --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14.5px;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    .page-wrap {
+      display: flex;
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 0 24px;
+      gap: 0;
+    }
+
+    /* ── TOC Sidebar ────────────────────────────────────────────────────── */
+    .toc-sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 32px 0 32px 0;
+      border-right: 1px solid var(--border-light);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .toc-sidebar::-webkit-scrollbar { width: 4px; }
+    .toc-sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .toc-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      padding: 0 20px 10px;
+    }
+
+    .toc-nav { list-style: none; }
+    .toc-nav li a {
+      display: block;
+      padding: 4px 20px;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      text-decoration: none;
+      border-left: 2px solid transparent;
+      transition: all 0.15s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .toc-nav li a:hover { color: var(--accent-soft); border-left-color: var(--accent); background: #ffffff06; }
+    .toc-nav li.toc-h2 a { font-weight: 600; color: var(--text); }
+    .toc-nav li.toc-h3 a { padding-left: 32px; font-size: 12px; }
+    .toc-nav li.toc-h4 a { padding-left: 44px; font-size: 11.5px; color: var(--text-dim); }
+
+    /* ── Main Content ───────────────────────────────────────────────────── */
+    .main-content {
+      flex: 1;
+      min-width: 0;
+      padding: 40px 48px 80px 56px;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    .page-header {
+      margin-bottom: 48px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+    }
+    .page-header h1 {
+      font-size: 26px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.3px;
+      margin-bottom: 8px;
+    }
+    .page-header p {
+      color: var(--text-muted);
+      font-size: 14px;
+      max-width: 600px;
+    }
+    .header-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      color: var(--accent-soft);
+      background: var(--accent-bg);
+      border: 1px solid #3730a366;
+      border-radius: 20px;
+      padding: 2px 10px;
+      margin-bottom: 14px;
+    }
+    .header-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+
+    /* ── Headings ───────────────────────────────────────────────────────── */
+    h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #f0f4ff;
+      margin: 48px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-light);
+      letter-spacing: -0.2px;
+    }
+    h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin: 32px 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    h3::before {
+      content: '';
+      display: inline-block;
+      width: 3px;
+      height: 14px;
+      background: var(--accent);
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    h4 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin: 22px 0 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* ── Paragraphs & Text ──────────────────────────────────────────────── */
+    p { margin: 0 0 14px; color: var(--text); }
+    p:last-child { margin-bottom: 0; }
+    strong { color: #f0f4ff; font-weight: 600; }
+    a { color: var(--accent-soft); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    hr { border: none; border-top: 1px solid var(--border-light); margin: 40px 0; }
+
+    /* ── Inline Code ────────────────────────────────────────────────────── */
+    code {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      background: var(--bg-code);
+      color: #a5b4fc;
+      padding: 1px 6px;
+      border-radius: 4px;
+      border: 1px solid #2a3350;
+    }
+
+    /* ── Code / Pre Blocks ──────────────────────────────────────────────── */
+    pre {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+      overflow-x: auto;
+      margin: 16px 0 24px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    pre::-webkit-scrollbar { height: 4px; }
+    pre::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    pre code {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      background: none;
+      color: #94a3b8;
+      padding: 0;
+      border: none;
+      line-height: 1.7;
+      white-space: pre;
+    }
+
+    /* ── Flow / Diagram blocks ──────────────────────────────────────────── */
+    .flow-block {
+      background: #0e1420;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      margin: 16px 0 28px;
+      overflow-x: auto;
+    }
+    .flow-block pre { background: none; border: none; padding: 0; margin: 0; }
+    .flow-block pre code { color: #7dd3fc; font-size: 12px; }
+
+    /* ── Tables ─────────────────────────────────────────────────────────── */
+    .table-wrap {
+      overflow-x: auto;
+      margin: 14px 0 28px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    thead { background: var(--bg-table-head); }
+    thead th {
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11.5px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid var(--border-light); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:nth-child(odd) { background: var(--bg-table-row); }
+    tbody tr:nth-child(even) { background: #0f141e; }
+    tbody tr:hover { background: #1c2335; }
+    td { padding: 9px 14px; vertical-align: top; color: var(--text); }
+
+    /* ── Badges ─────────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 9px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+    .badge-green  { background: var(--green-bg);  color: var(--green);       border: 1px solid #0d3d2866; }
+    .badge-yellow { background: var(--yellow-bg); color: var(--yellow);      border: 1px solid #3d2a0866; }
+    .badge-blue   { background: var(--accent-bg); color: var(--accent-soft); border: 1px solid #3730a366; }
+    .badge-gray   { background: #1a2030;           color: var(--text-dim);    border: 1px solid var(--border); }
+    .badge-red    { background: var(--red-bg);     color: var(--red);         border: 1px solid #3d0e0e66; }
+    .badge-orange { background: var(--orange-bg);  color: var(--orange);      border: 1px solid #3d200066; }
+
+    /* ── Blockquote ─────────────────────────────────────────────────────── */
+    blockquote {
+      border-left: 3px solid var(--accent);
+      background: var(--accent-bg);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 14px 18px;
+      margin: 16px 0 24px;
+      color: #a5b4fc;
+      font-size: 13.5px;
+      line-height: 1.7;
+    }
+    blockquote strong { color: #c7d2fe; }
+    blockquote.yc-quote {
+      border-left-color: var(--yellow);
+      background: var(--yellow-bg);
+      color: #fcd34d;
+    }
+    blockquote.insight {
+      border-left-color: var(--green);
+      background: var(--green-bg);
+      color: #6ee7b7;
+    }
+    blockquote.principle {
+      border-left-color: var(--orange);
+      background: var(--orange-bg);
+      color: #fdba74;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    /* ── Section card ───────────────────────────────────────────────────── */
+    .section-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin: 20px 0 28px;
+    }
+    .section-card > h3 { margin-top: 0; }
+
+    /* ── Comparison grid ────────────────────────────────────────────────── */
+    .compare-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 16px 0 28px;
+    }
+    .compare-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+    .compare-box h4 { margin-top: 0; margin-bottom: 10px; }
+    .compare-box ul { padding-left: 18px; }
+    .compare-box li { font-size: 13.5px; color: var(--text-muted); margin-bottom: 5px; }
+    .compare-box li strong { color: var(--text); }
+    .compare-box.good { border-color: #10b98133; }
+    .compare-box.bad  { border-color: #ef444433; }
+
+    /* ── Lists ──────────────────────────────────────────────────────────── */
+    ul, ol { padding-left: 22px; margin: 8px 0 16px; }
+    li { margin-bottom: 5px; font-size: 14px; color: var(--text); }
+    li code { font-size: 12px; }
+    li strong { color: #f0f4ff; }
+
+    /* ── Phase cards ────────────────────────────────────────────────────── */
+    .phase-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin: 16px 0 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .phase-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 3px; height: 100%;
+      border-radius: 3px 0 0 3px;
+    }
+    .phase-card.p1::before { background: #6366f1; }
+    .phase-card.p2::before { background: #7c3aed; }
+    .phase-card.p3::before { background: #ef4444; }
+    .phase-card.p4::before { background: #f97316; }
+    .phase-card.p5::before { background: #f59e0b; }
+    .phase-card.p6::before { background: #10b981; }
+    .phase-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #f0f4ff;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .phase-num {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+    .phase-card ul { margin: 0; }
+    .phase-card li { font-size: 13.5px; color: var(--text-muted); margin-bottom: 4px; }
+    .phase-card li strong { color: var(--text); }
+
+    /* ── Difficulty card ─────────────────────────────────────────────────── */
+    .diff-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin: 16px 0 20px;
+    }
+    .diff-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .diff-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #f0f4ff;
+    }
+    .diff-card ul { margin: 0; }
+    .diff-card li { font-size: 13.5px; color: var(--text-muted); margin-bottom: 5px; }
+    .diff-card li strong { color: var(--text); }
+
+    /* ── Spectrum bar ────────────────────────────────────────────────────── */
+    .spectrum {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin: 16px 0 28px;
+      overflow-x: auto;
+    }
+    .spectrum pre { background: none; border: none; padding: 0; margin: 0; }
+    .spectrum pre code { color: #a5b4fc; font-size: 12.5px; }
+
+    /* ── Pipeline boxes ──────────────────────────────────────────────────── */
+    .pipeline-grid {
+      display: grid;
+      gap: 2px;
+      margin: 16px 0 24px;
+    }
+    .pipeline-row {
+      display: flex;
+      align-items: stretch;
+      gap: 2px;
+    }
+    .pipe-step {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: 6px;
+      padding: 10px 14px;
+      flex: 1;
+      font-size: 12.5px;
+    }
+    .pipe-step-label { font-weight: 600; color: #f0f4ff; margin-bottom: 2px; }
+    .pipe-step-sub { color: var(--text-dim); font-size: 11.5px; }
+    .pipe-step.local  { border-color: #10b98133; }
+    .pipe-step.cloud  { border-color: #6366f133; }
+    .pipe-step.never  { border-color: #ef444433; }
+    .pipe-arrow {
+      display: flex;
+      align-items: center;
+      color: var(--text-dim);
+      font-size: 16px;
+      padding: 0 4px;
+      flex-shrink: 0;
+    }
+
+    /* ── Responsive ─────────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .toc-sidebar { display: none; }
+      .main-content { padding: 28px 20px 60px; }
+      .compare-grid { grid-template-columns: 1fr; }
+    }
+    @media print {
+      .toc-sidebar { display: none; }
+      .main-content { padding: 0; }
+      pre, .phase-card, .diff-card { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-wrap">
+
+  <!-- ── TOC Sidebar ─────────────────────────────────────────────────── -->
+  <nav class="toc-sidebar">
+    <div class="toc-label">Contents</div>
+    <ul class="toc-nav">
+      <li class="toc-h2"><a href="#yc-vision">YC Company Brain Vision</a></li>
+      <li class="toc-h2"><a href="#how-close">How Close Is Torvi?</a></li>
+      <li class="toc-h3"><a href="#aligns">Where Torvi Aligns</a></li>
+      <li class="toc-h3"><a href="#diverges">Where Torvi Diverges</a></li>
+      <li class="toc-h3"><a href="#spectrum">Position on Spectrum</a></li>
+      <li class="toc-h2"><a href="#roadmap">Full Upgrade Roadmap</a></li>
+      <li class="toc-h3"><a href="#phase1">Phase 1 — Multi-User Arch</a></li>
+      <li class="toc-h3"><a href="#phase2">Phase 2 — Source Integrations</a></li>
+      <li class="toc-h3"><a href="#phase3">Phase 3 — Knowledge Structuring</a></li>
+      <li class="toc-h3"><a href="#phase4">Phase 4 — Hybrid RAG + Skills</a></li>
+      <li class="toc-h3"><a href="#phase5">Phase 5 — Agent Runtime</a></li>
+      <li class="toc-h3"><a href="#phase6">Phase 6 — Compliance + Billing</a></li>
+      <li class="toc-h2"><a href="#hard-problems">Next Hard Problems</a></li>
+      <li class="toc-h3"><a href="#extreme">Extreme Difficulty</a></li>
+      <li class="toc-h3"><a href="#very-hard">Very Hard</a></li>
+      <li class="toc-h3"><a href="#hard">Hard (More Tractable)</a></li>
+      <li class="toc-h2"><a href="#privacy">Privacy Problem</a></li>
+      <li class="toc-h3"><a href="#current-reality">Current Reality</a></li>
+      <li class="toc-h3"><a href="#rag-problems">RAG Architecture Issues</a></li>
+      <li class="toc-h3"><a href="#two-stage">Two-Stage Pipeline Fix</a></li>
+      <li class="toc-h3"><a href="#improvements">Specific Improvements</a></li>
+      <li class="toc-h2"><a href="#summary">Summary Status Table</a></li>
+    </ul>
+  </nav>
+
+  <!-- ── Main Content ─────────────────────────────────────────────────── -->
+  <main class="main-content">
+
+    <!-- Header -->
+    <div class="page-header">
+      <div class="header-badges">
+        <span class="header-badge">🧠 Company Brain</span>
+        <span class="badge badge-yellow">YC Priority Problem</span>
+        <span class="badge badge-blue">Strategic Roadmap</span>
+      </div>
+      <h1>Company Brain — Vision, Gap Analysis &amp; Roadmap</h1>
+      <p>How close Torvi AI is to the Y Combinator "Company Brain" vision, what needs to be built, and the hardest technical problems ahead.</p>
+    </div>
+
+    <!-- ── Section 1: YC Vision ─────────────────────────────────────── -->
+    <h2 id="yc-vision">What is the YC "Company Brain" Vision?</h2>
+
+    <p>Y Combinator lists <strong>"Company Brain"</strong> as one of the top 5 major problems they want founders to solve.</p>
+
+    <blockquote class="yc-quote">
+      "The biggest blocker to AI automation of companies is no longer the models — it's the domain knowledge. Every company has critical know-how scattered everywhere: people's heads, email threads, Slack conversations, support tickets, internal wikis, and databases. We need a system that pulls knowledge out of all these fragmented sources, structures it, keeps it current, and turns it into an executable skills file for AI agents. This isn't a company-wide search or a chatbot over documents. It's a <strong>living map of how a company works</strong>."
+    </blockquote>
+
+    <div class="section-card">
+      <h3 style="margin-top:0">Key Distinctions</h3>
+      <ul>
+        <li><strong>Not</strong> a company-wide search engine</li>
+        <li><strong>Not</strong> a chatbot over uploaded documents</li>
+        <li><strong>Is</strong> a living, executable map of how a company operates — processes, decisions, policies</li>
+        <li><strong>Goal:</strong> AI agents use the skills file to <em>do</em> the work safely and consistently, not just answer questions</li>
+        <li><strong>Scope:</strong> Every business in the world</li>
+      </ul>
+    </div>
+
+    <hr />
+
+    <!-- ── Section 2: How Close ─────────────────────────────────────── -->
+    <h2 id="how-close">How Close Is Torvi AI to This Vision?</h2>
+
+    <h3 id="aligns">✅ Where Torvi Already Aligns</h3>
+
+    <ul>
+      <li><strong>Real-time passive capture</strong> — Context Memory is the exact primitive the vision asks for: pulling knowledge from fragmented sources <em>as it happens</em>. You capture Slack, email, VS Code, Teams, Notion, Linear <em>live on screen</em> — not from stale exports. This is a unique angle most competitors don't have</li>
+      <li><strong>Multi-source awareness</strong> — The content classifier already understands 7 domain types (code, email, meeting, document, PM, design, chat) across 45+ apps — the beginnings of a domain taxonomy</li>
+      <li><strong>"Keeps it current"</strong> — The WinEvent hook + 2-second timer is the mechanism for freshness. Context updates in real time as the user works</li>
+      <li><strong>Context injection into AI</strong> — The BM25 RAG pipeline is the retrieval side of the "skills file" concept — making captured knowledge available to AI at the moment it needs it</li>
+      <li><strong>Auto system-prompt switching</strong> — Torvi already selects <em>how to behave</em> based on what's on screen. Primitive domain-aware AI behavior</li>
+      <li><strong>Privacy-first architecture</strong> — Local SQLite, PII redaction before storage, no cloud sync. A competitive moat for enterprise customers</li>
+      <li><strong>Classification before storage</strong> — Not dumping raw text; tagging, cleaning, deduplicating, and structuring it</li>
+    </ul>
+
+    <h3 id="diverges">❌ Where Torvi Diverges from the Vision</h3>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Dimension</th>
+            <th>Torvi Today</th>
+            <th>Company Brain Needs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Scope</strong></td>
+            <td>1 user, 1 machine</td>
+            <td>All employees, all systems</td>
+          </tr>
+          <tr>
+            <td><strong>Knowledge source</strong></td>
+            <td>Passive screen reading</td>
+            <td>Active API integrations (Slack API, email API, CRM, etc.)</td>
+          </tr>
+          <tr>
+            <td><strong>Knowledge structure</strong></td>
+            <td>Raw text chunks in SQLite</td>
+            <td>Structured skills files / workflow maps</td>
+          </tr>
+          <tr>
+            <td><strong>Output</strong></td>
+            <td>Context injected into AI chat</td>
+            <td>Executable workflows for AI agents to act on</td>
+          </tr>
+          <tr>
+            <td><strong>Users</strong></td>
+            <td>Individual productivity tool</td>
+            <td>Organizational operating system</td>
+          </tr>
+          <tr>
+            <td><strong>Knowledge type</strong></td>
+            <td>"What's on your screen right now"</td>
+            <td>"How does this company handle refunds / incidents / pricing exceptions"</td>
+          </tr>
+          <tr>
+            <td><strong>Agency</strong></td>
+            <td>Helps YOU answer questions faster</td>
+            <td>AI agents autonomously doing work</td>
+          </tr>
+          <tr>
+            <td><strong>Memory</strong></td>
+            <td>24-hour rolling window</td>
+            <td>Persistent institutional memory across years</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="spectrum">📍 Position on the Spectrum</h3>
+
+    <div class="spectrum">
+      <pre><code>Personal                                                       Company
+AI assistant  →  Context-aware AI  →  Team knowledge  →  Company Brain
+                        ↑
+                   Torvi is here</code></pre>
+    </div>
+
+    <blockquote class="insight">
+      <strong>The real insight in what's already built:</strong> Real-time, in-the-moment capture. Most Company Brain competitors focus on <em>archived</em> knowledge — old Slack exports, uploaded documents, past tickets. Torvi's screen-reader approach is the only way to capture knowledge being <em>created right now</em>, before it evaporates. That's the unique architectural bet.
+    </blockquote>
+
+    <p>The <strong>vision matches</strong>; the <strong>scope is individual vs. enterprise</strong>; the <strong>tech foundation is directionally correct</strong>. Distance from Company Brain: roughly 2–3 major architectural leaps (multi-user, active connectors, agent runtime).</p>
+
+    <hr />
+
+    <!-- ── Section 3: Roadmap ────────────────────────────────────────── -->
+    <h2 id="roadmap">Full Upgrade Roadmap (Personal → Company Brain)</h2>
+
+    <!-- Phase 1 -->
+    <div class="phase-card p1" id="phase1">
+      <div class="phase-title">
+        <span class="phase-num">Phase 1</span>
+        Multi-User &amp; Organizational Architecture
+      </div>
+      <ul>
+        <li>Company account model — workspaces, org IDs, team membership (not just individual accounts)</li>
+        <li>Role-based access control — admin, member, viewer; different roles see different knowledge domains</li>
+        <li>Shared knowledge base — replace per-user local SQLite with a cloud-synced org-wide store (PostgreSQL / Supabase)</li>
+        <li>Knowledge ownership — every captured chunk tagged with author, team, department</li>
+        <li>Capture agent deployed per employee machine — feeds into central store</li>
+        <li>Onboarding flow for orgs — invite teammates, assign roles, set capture scope</li>
+      </ul>
+    </div>
+
+    <!-- Phase 2 -->
+    <div class="phase-card p2" id="phase2">
+      <div class="phase-title">
+        <span class="phase-num">Phase 2</span>
+        Source Integrations + Long-Term Persistence
+      </div>
+      <ul>
+        <li>API connectors: <strong>Slack, Gmail, Notion, Jira, Linear, Confluence, HubSpot, Zendesk, PagerDuty</strong></li>
+        <li>Remove the 24-hour rolling window for company-level store — institutional memory must persist for years</li>
+        <li>Versioned knowledge — every edit/update creates a new version with timestamp and author</li>
+        <li>Retention policies — admin-configurable per knowledge type</li>
+        <li>Archival layer — compress and cold-store old chunks not retrieved in 6+ months</li>
+        <li>Audit log — track who captured what, when, and any edits/deletions</li>
+      </ul>
+    </div>
+
+    <!-- Phase 3 -->
+    <div class="phase-card p3" id="phase3">
+      <div class="phase-title">
+        <span class="phase-num">Phase 3</span>
+        Knowledge Structuring Layer <span class="badge badge-red" style="font-size:10px;margin-left:4px">Biggest Technical Lift</span>
+      </div>
+      <ul>
+        <li><strong>Entity extraction</strong> — move from raw text chunks to typed knowledge entities: <code>Process</code>, <code>Policy</code>, <code>Decision</code>, <code>RunBook</code>, <code>FAQ</code>, <code>ContactPoint</code></li>
+        <li><strong>Process graph builder</strong> — extract multi-step workflows from conversations/docs</li>
+        <li><strong>Decision capture</strong> — store <em>why</em> a decision was made, not just <em>what</em> it was</li>
+        <li><strong>Policy detection</strong> — identify rules/constraints from conversations ("refunds over $500 require manager approval")</li>
+        <li><strong>Deduplication + conflict resolution</strong> — when 3 people captured different versions of the same policy, merge or flag the conflict</li>
+        <li><strong>Staleness tracking</strong> — each entity gets a "last confirmed" timestamp; flag entities not touched in 90+ days as potentially stale</li>
+        <li><strong>Auto-linking</strong> — link related entities (this RunBook relates to this Process relates to this FAQ)</li>
+      </ul>
+    </div>
+
+    <!-- Phase 4 -->
+    <div class="phase-card p4" id="phase4">
+      <div class="phase-title">
+        <span class="phase-num">Phase 4</span>
+        Hybrid RAG + Skills File Format
+      </div>
+      <ul>
+        <li>Replace BM25-only with <strong>hybrid retrieval</strong> — BM25 + dense embeddings (vector search) for semantic understanding</li>
+        <li>Graph-aware retrieval — when fetching a Process, also fetch its related Policy and RunBook nodes</li>
+        <li>Org-scoped retrieval — queries search the whole company's knowledge, not just the current user's recent context</li>
+        <li>Temporal retrieval — "what was our refund policy in Q1 2025?" requires time-aware querying</li>
+        <li>Cross-domain retrieval with permission scoping</li>
+        <li><strong>Design a structured skills schema</strong> — machine-readable format (JSON/YAML) defining: trigger conditions, steps, decision branches, required permissions, expected outputs</li>
+        <li><strong>Skills compiler</strong> — takes captured processes/policies and converts them to the skills format</li>
+        <li><strong>Skills registry</strong> — central catalog of all skills the company has (browsable, searchable, version-tracked)</li>
+        <li>Human-in-the-loop annotation — experts review/approve auto-generated skills before they become executable</li>
+      </ul>
+    </div>
+
+    <!-- Phase 5 -->
+    <div class="phase-card p5" id="phase5">
+      <div class="phase-title">
+        <span class="phase-num">Phase 5</span>
+        AI Agent Runtime <span class="badge badge-orange" style="font-size:10px;margin-left:4px">Currently Absent</span>
+      </div>
+      <ul>
+        <li>Agent framework — replace the "answer a question" model with agents that execute multi-step plans</li>
+        <li>Tool registry — agents need tools: send Slack message, create Jira ticket, update Notion page, query database, call webhook</li>
+        <li>Task queue — agents receive tasks, execute asynchronously, report results</li>
+        <li>Approval workflows — high-stakes actions require human confirmation before execution</li>
+        <li>Agent observability — every action logged, reversible where possible, auditable</li>
+        <li>Failure recovery — if step 3 of a 5-step workflow fails, the agent rolls back or escalates</li>
+        <li>Parallel agent execution — multiple agents handling different tasks simultaneously</li>
+      </ul>
+    </div>
+
+    <!-- Phase 6 -->
+    <div class="phase-card p6" id="phase6">
+      <div class="phase-title">
+        <span class="phase-num">Phase 6</span>
+        Compliance, Admin UI &amp; Enterprise Billing
+      </div>
+      <ul>
+        <li>Company knowledge dashboard — visualize the org's knowledge graph: what's captured, what's stale, what's missing</li>
+        <li>Process editor — humans can manually edit, approve, or annotate auto-extracted processes</li>
+        <li>Skills manager — view, edit, enable/disable skills in the registry</li>
+        <li>Agent activity feed — real-time view of what agents are doing across the org</li>
+        <li>Data residency — option to keep all knowledge in a specific region for compliance</li>
+        <li>SOC 2 / ISO 27001 readiness — access logs, encryption at rest and in transit, key management</li>
+        <li>Right to be forgotten — delete all captured knowledge from a specific employee on offboarding</li>
+        <li>Per-seat pricing for organizations (current model is individual-subscription)</li>
+        <li>Self-hosted option — large enterprises require on-premise deployment</li>
+      </ul>
+    </div>
+
+    <!-- Phase table -->
+    <h3>Priority Order (if building incrementally)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Phase</th>
+            <th>What to Build</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Phase 1</strong></td><td>Multi-user architecture + cloud-synced shared KB</td><td>Nothing else works without this foundation</td></tr>
+          <tr><td><strong>Phase 2</strong></td><td>Source integrations + long-term persistence</td><td>Expand capture surface, remove 24h limit</td></tr>
+          <tr><td><strong>Phase 3</strong></td><td>Knowledge structuring + entity extraction</td><td>Transforms raw text into actionable knowledge</td></tr>
+          <tr><td><strong>Phase 4</strong></td><td>Hybrid RAG + skills file format</td><td>Makes knowledge executable by AI</td></tr>
+          <tr><td><strong>Phase 5</strong></td><td>Agent runtime + tool registry</td><td>The final leap — AI that <em>does</em>, not just <em>answers</em></td></tr>
+          <tr><td><strong>Phase 6</strong></td><td>Compliance + admin UI + enterprise billing</td><td>Required to actually sell to companies</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <blockquote>
+      The screen-reading capture engine already built is <strong>Phase 0 — the hardest and most novel piece</strong>. Phases 1–6 are large but more conventional engineering work.
+    </blockquote>
+
+    <hr />
+
+    <!-- ── Section 4: Hard Problems ─────────────────────────────────── -->
+    <h2 id="hard-problems">Next Hard Technical Problems</h2>
+
+    <p>The capture engine was hard because it required low-level OS integration (WinEvent hooks, UIAutomation COM, real-time performance). The next problems are hard in a <strong>different way — they're semantically hard</strong>. No amount of clever engineering fully solves them. They require research-grade NLP, probabilistic systems, and accepting that the output will sometimes be wrong, then building guardrails around that.</p>
+
+    <h3 id="extreme">🔴 Extreme Difficulty</h3>
+
+    <div class="diff-card">
+      <div class="diff-header">
+        <span class="badge badge-red">1</span>
+        <span class="diff-label">Knowledge Structuring / Entity Extraction</span>
+      </div>
+      <ul>
+        <li>Distinguishing a <em>policy</em> ("refunds over $500 require approval") from an <em>opinion</em> ("I think we should require approval") from <em>noise</em> in a Slack thread — requires deep semantic understanding, not pattern matching</li>
+        <li>Extracting multi-step <em>processes</em> from how people casually describe them — humans skip steps, assume context, use pronouns, and contradict themselves</li>
+        <li>Deduplication is semantically hard: the same policy appears in a Slack message, a Notion doc, and an email — all worded differently, some partially outdated. Merging correctly without losing nuance is an open research problem</li>
+        <li>Conflict detection: knowing that "our SLA is 24 hours" (captured Monday) and "we now commit to 12 hours" (captured Friday) are <em>contradictions</em> about the same entity, not two separate facts</li>
+      </ul>
+    </div>
+
+    <div class="diff-card">
+      <div class="diff-header">
+        <span class="badge badge-red">2</span>
+        <span class="diff-label">Reliable Multi-Step Agent Execution</span>
+      </div>
+      <ul>
+        <li>LLMs drift mid-workflow — by step 6, the model has "forgotten" the original goal and started solving an adjacent problem</li>
+        <li>Tool call failures mid-workflow require intelligent recovery: retry, escalate, compensate (undo previous steps), or gracefully abort — the agent must decide which</li>
+        <li><strong>Prompt injection through tool outputs</strong> is a real attack surface — a malicious Slack message or Jira ticket can hijack an agent's next action if not sandboxed</li>
+        <li>Parallel agent coordination: when two agents both need to update the same resource simultaneously, distributed locking semantics at the LLM call level — nobody has solved this cleanly</li>
+      </ul>
+    </div>
+
+    <h3 id="very-hard">🟠 Very Hard</h3>
+
+    <div class="diff-card">
+      <div class="diff-header">
+        <span class="badge badge-orange">3</span>
+        <span class="diff-label">Hybrid RAG at Organizational Scale</span>
+      </div>
+      <ul>
+        <li>Dense vector embeddings on millions of chunks requires ANN indexing (HNSW/IVF) — requires careful tuning or retrieval quality collapses at scale</li>
+        <li>Every knowledge entity update requires re-computing embeddings and updating the index in real time without degrading search</li>
+        <li>Permission-scoped retrieval: most vector databases don't have native row-level security</li>
+        <li>Temporal retrieval ("what did we know about pricing <em>before</em> the March 2025 repricing") requires storing and querying embedding snapshots, multiplying storage and index complexity</li>
+      </ul>
+    </div>
+
+    <div class="diff-card">
+      <div class="diff-header">
+        <span class="badge badge-orange">4</span>
+        <span class="diff-label">Real-Time Multi-Device Sync Without Data Loss</span>
+      </div>
+      <ul>
+        <li>Concurrent writes from 50 employees with no central lock create conflicts — two people captured different versions of the same meeting decision at the same time</li>
+        <li>Must work offline-first then sync cleanly when reconnected — standard CRDTs don't understand semantic content</li>
+        <li>Latency budget is brutal: the capture pipeline must not block the UI thread for any user, even while syncing to the cloud</li>
+      </ul>
+    </div>
+
+    <div class="diff-card">
+      <div class="diff-header">
+        <span class="badge badge-orange">5</span>
+        <span class="diff-label">Skills Compiler (Natural Language → Executable Workflow)</span>
+      </div>
+      <ul>
+        <li>Humans describe processes incompletely — they assume shared context, skip "obvious" steps, describe the happy path only</li>
+        <li>Branches and conditionals are almost never explicit in natural language</li>
+        <li>Validating correctness of a compiled skill is fundamentally hard — you can't unit test a business process like code</li>
+        <li>Any error in the compiled skill gets <em>amplified by every agent execution</em> — a wrong step executed 10,000 times causes 10,000 wrong outcomes</li>
+      </ul>
+    </div>
+
+    <h3 id="hard">🟡 Hard but More Tractable</h3>
+
+    <div class="diff-card">
+      <div class="diff-header">
+        <span class="badge badge-yellow">6</span>
+        <span class="diff-label">PII &amp; Sensitive Content Filtering at Low Latency</span>
+      </div>
+      <ul>
+        <li>Legal, HR, and executive communications must be excluded — but those people also use Slack, email, Notion. Content-aware exclusion, not just app-level exclusion</li>
+        <li>Regex-based PII detection (SSNs, credit cards) is easy. Contextual sensitivity ("this is a performance review") requires an LLM — calling an LLM on every captured chunk kills performance</li>
+        <li>False positives are costly (failing to capture valid business knowledge); false negatives are a compliance liability</li>
+      </ul>
+    </div>
+
+    <div class="diff-card">
+      <div class="diff-header">
+        <span class="badge badge-yellow">7</span>
+        <span class="diff-label">Knowledge Graph Construction + Traversal</span>
+      </div>
+      <ul>
+        <li>Relationship types between entities must be inferred — they're rarely stated explicitly</li>
+        <li>Graph traversal at query time adds latency on top of already-expensive vector search</li>
+        <li>The graph must stay consistent as entities are updated, merged, or deleted — referential integrity for a knowledge graph is much harder than for a relational database</li>
+      </ul>
+    </div>
+
+    <div class="table-wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr>
+            <th>Problem</th>
+            <th>Why It's Hard</th>
+            <th>Torvi Today</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Knowledge entity extraction</strong></td><td>Semantic NLP, dedup, conflict detection — open research problem</td><td><span class="badge badge-gray">❌ Raw chunks only</span></td></tr>
+          <tr><td><strong>Reliable multi-step agents</strong></td><td>LLM drift, tool failure recovery, prompt injection, distributed locking</td><td><span class="badge badge-gray">❌ No agent runtime</span></td></tr>
+          <tr><td><strong>Org-scale hybrid RAG</strong></td><td>ANN indexing, permission scoping, temporal retrieval</td><td><span class="badge badge-gray">❌ Local BM25 only</span></td></tr>
+          <tr><td><strong>Multi-device sync</strong></td><td>Concurrent writes, offline-first, semantic CRDTs</td><td><span class="badge badge-gray">❌ Single local SQLite</span></td></tr>
+          <tr><td><strong>Skills compiler</strong></td><td>Incomplete process descriptions, untestable correctness</td><td><span class="badge badge-gray">❌ No skills format</span></td></tr>
+          <tr><td><strong>Org-wide PII filtering</strong></td><td>Contextual sensitivity at low latency</td><td><span class="badge badge-yellow">⚠️ Basic regex exists</span></td></tr>
+          <tr><td><strong>Knowledge graph</strong></td><td>Relationship inference, traversal latency, graph integrity</td><td><span class="badge badge-gray">❌ Flat index only</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <hr />
+
+    <!-- ── Section 5: Privacy ────────────────────────────────────────── -->
+    <h2 id="privacy">The Privacy Problem &amp; Architecture Fix</h2>
+
+    <h3 id="current-reality">The Current Privacy Reality</h3>
+
+    <p>The current architecture has a serious data exposure problem. Whatever was captured — code, Slack messages, emails visible on screen — gets sent verbatim to OpenAI/Anthropic. The PII filter catches SSNs and credit cards, but <strong>not</strong> business logic, internal processes, pricing strategies, confidential conversations, or proprietary code.</p>
+
+    <div class="flow-block">
+      <pre><code>Screen → UIAutomation → text chunks → SQLite → BM25 → inject raw text into prompt → SENT TO CLOUD LLM</code></pre>
+    </div>
+
+    <p>For a personal tool used by an individual — this is an acceptable tradeoff (same as manually pasting into ChatGPT). For a <strong>Company Brain where 50 employees' screens feed into the context — this is a serious liability.</strong></p>
+
+    <h3 id="rag-problems">Problems with the Current RAG Architecture</h3>
+
+    <ul>
+      <li><strong>Sending noise</strong> — BM25 retrieves by keyword overlap, not semantic relevance. The AI receives irrelevant chunks, wasting tokens and sometimes confusing the model</li>
+      <li><strong>No pre-computed understanding</strong> — the AI re-interprets the same raw captured text from scratch on every single query. Nothing is learned ahead of time</li>
+      <li><strong>Raw exposure</strong> — sending the most sensitive form of the data (verbatim screen text) rather than a distilled, abstracted form</li>
+      <li><strong>No hierarchy</strong> — a random Slack message and a critical company policy have identical weight</li>
+      <li><strong>Token waste</strong> — if 15 chunks describe the same thing slightly differently, all 15 get injected</li>
+    </ul>
+
+    <h3 id="two-stage">The Right Architecture — Two-Stage Pipeline</h3>
+
+    <div class="compare-grid">
+      <div class="compare-box bad">
+        <h4>❌ Current (Problematic)</h4>
+        <ul>
+          <li>Screen text → stored raw</li>
+          <li>Raw text sent directly to cloud LLM</li>
+          <li>LLM reads verbatim screen content</li>
+          <li>Confidential data exposed externally</li>
+        </ul>
+      </div>
+      <div class="compare-box good">
+        <h4>✅ Better (Two-Stage)</h4>
+        <ul>
+          <li>Screen text → local model extracts facts</li>
+          <li>Structured facts stored locally</li>
+          <li>Only clean abstractions sent to cloud LLM</li>
+          <li>Raw data never leaves the device</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Step</th>
+            <th>Runs Where</th>
+            <th>Handles What</th>
+            <th>Sent to Cloud?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Screen capture + PII filter</strong></td>
+            <td>Local (Rust)</td>
+            <td>Raw text</td>
+            <td><span class="badge badge-red">❌ Never</span></td>
+          </tr>
+          <tr>
+            <td><strong>Entity/fact extraction</strong></td>
+            <td>Local small model (Phi-3, Llama 3.2 1B)</td>
+            <td>"What are the key facts in this chunk?"</td>
+            <td><span class="badge badge-red">❌ Never</span></td>
+          </tr>
+          <tr>
+            <td><strong>Structured knowledge store</strong></td>
+            <td>Local SQLite</td>
+            <td>Extracted facts, not raw text</td>
+            <td><span class="badge badge-red">❌ Never</span></td>
+          </tr>
+          <tr>
+            <td><strong>Query-time semantic retrieval</strong></td>
+            <td>Local</td>
+            <td>Semantic search on structured facts</td>
+            <td><span class="badge badge-red">❌ Never</span></td>
+          </tr>
+          <tr>
+            <td><strong>Final answer generation</strong></td>
+            <td>Cloud LLM</td>
+            <td>Receives <em>clean structured facts only</em></td>
+            <td><span class="badge badge-green">✅ Minimal, abstracted</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The cloud LLM only sees something like:</p>
+    <blockquote>
+      "User is working in VS Code on a React component. Recently modified: <code>useCompletion.ts</code>. Related policy: streaming responses should use SSE not WebSocket (captured from Slack 3 days ago)."
+    </blockquote>
+    <p>Not the raw Slack message. Not the raw code. Just extracted, structured facts.</p>
+
+    <h3 id="improvements">Specific Improvements to Build</h3>
+
+    <h4>Immediate / Low Effort</h4>
+    <ul>
+      <li><strong>Context compression before sending</strong> — run a local summarization pass before injecting chunks; strip noise and shorten what gets sent to the cloud LLM</li>
+      <li><strong>Chunk scoring + filtering</strong> — only send top 3–5 chunks above a relevance threshold, not everything BM25 returns</li>
+    </ul>
+
+    <h4>Medium Effort</h4>
+    <ul>
+      <li><strong>Swap BM25 for local semantic embeddings</strong> — use a small local embedding model (all-MiniLM-L6, ~80MB) to generate vectors on-device; store via <code>sqlite-vec</code>. Retrieval becomes semantic, not keyword-based. Raw text never leaves device at the embedding step</li>
+      <li><strong>Structured fact extraction</strong> — background job processes stored chunks with a local small model and extracts typed facts: <code>{"type": "policy", "content": "refunds over $500 need approval", "confidence": 0.87, "source": "Slack"}</code>. Send facts, not raw text</li>
+    </ul>
+
+    <h4>For Company Brain Scale</h4>
+    <ul>
+      <li><strong>Local extraction model running continuously</strong> — a small model (Phi-3-mini, ~2GB RAM) runs locally on every employee's machine purely for extraction. Only needs to be good at entity recognition. Solvable with small models</li>
+      <li><strong>Encrypted structured sync</strong> — only extracted structured facts (never raw screen text) sync to the company knowledge base</li>
+      <li><strong>On-premise LLM option</strong> — for enterprise customers, the final answering LLM also runs on-premise (private Azure OpenAI, self-hosted Llama). Zero data leaves the company</li>
+    </ul>
+
+    <blockquote class="principle">
+      Stop treating the cloud LLM as the brain that reads your raw data. Make it the voice that speaks from a local brain that already understood your data. The local model does the understanding (slow, happens in background, raw data never leaves). The cloud LLM does the articulation (fast, happens at query time, only sees abstractions).
+    </blockquote>
+
+    <hr />
+
+    <!-- ── Section 6: Summary ─────────────────────────────────────────── -->
+    <h2 id="summary">Summary Status Table</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Real-time passive screen capture</td><td><span class="badge badge-green">✅ Built — Phase 0, hardest and most novel</span></td></tr>
+          <tr><td>Multi-source content classification (45+ apps)</td><td><span class="badge badge-green">✅ Built</span></td></tr>
+          <tr><td>BM25 RAG injection</td><td><span class="badge badge-yellow">⚠️ Built — needs upgrade to semantic</span></td></tr>
+          <tr><td>PII redaction filter</td><td><span class="badge badge-yellow">⚠️ Basic — needs contextual upgrade</span></td></tr>
+          <tr><td>Multi-user / org architecture</td><td><span class="badge badge-gray">❌ Not started</span></td></tr>
+          <tr><td>Source API integrations (Slack, Gmail, etc.)</td><td><span class="badge badge-gray">❌ Not started</span></td></tr>
+          <tr><td>Knowledge structuring / entity extraction</td><td><span class="badge badge-gray">❌ Not started — hardest remaining problem</span></td></tr>
+          <tr><td>Long-term persistent memory (beyond 24h)</td><td><span class="badge badge-gray">❌ Not started</span></td></tr>
+          <tr><td>Hybrid semantic RAG</td><td><span class="badge badge-gray">❌ Not started</span></td></tr>
+          <tr><td>Skills file format + compiler</td><td><span class="badge badge-gray">❌ Not started</span></td></tr>
+          <tr><td>AI agent runtime</td><td><span class="badge badge-gray">❌ Not started</span></td></tr>
+          <tr><td>Privacy-safe two-stage pipeline</td><td><span class="badge badge-red">❌ Not started — important to build early</span></td></tr>
+          <tr><td>Enterprise compliance + admin UI</td><td><span class="badge badge-gray">❌ Not started</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

@@ -60,6 +60,36 @@
   50%       { box-shadow: 0 0 12px 3px rgba(52, 211, 153, 0.4); }
 }
 
+/* Pill bar unfold — expands from the icon's center position outward */
+@keyframes pill-unfold {
+  from {
+    clip-path: inset(0 calc(50% - 22px) 0 calc(50% - 22px) round 9999px);
+    opacity: 0.5;
+  }
+  to {
+    clip-path: inset(0 0% 0 0% round 9999px);
+    opacity: 1;
+  }
+}
+.pill-enter {
+  animation: pill-unfold 0.92s cubic-bezier(0.34, 1.1, 0.64, 1) both;
+}
+
+/* Pill bar fold — mirrors pill-unfold for the collapse direction */
+@keyframes pill-fold {
+  from {
+    clip-path: inset(0 0% 0 0% round 9999px);
+    opacity: 1;
+  }
+  to {
+    clip-path: inset(0 calc(50% - 22px) 0 calc(50% - 22px) round 9999px);
+    opacity: 0.4;
+  }
+}
+.pill-exit {
+  animation: pill-fold 0.38s cubic-bezier(0.55, 0, 0.9, 0.4) both;
+}
+
 /* ===== Glass opacity (controlled via React) ===== */
 :root {
   --glass-alpha: 0.82;

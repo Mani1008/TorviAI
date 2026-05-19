@@ -128,7 +128,7 @@ export default function SystemPrompts() {
     if (!validate()) return;
     setSaving(true);
     try {
-      const userId = loadUserProfile()?.$id ?? null;
+      const userId = loadUserProfile()?.id ?? null;
       if (dialog === "new") {
         await createSystemPrompt(form.name.trim(), form.prompt.trim());
       } else if (typeof dialog === "number") {
@@ -153,7 +153,7 @@ export default function SystemPrompts() {
   // ─── Delete ───────────────────────────────────────────────────────────────
   const handleDelete = async (id: number) => {
     await deleteSystemPrompt(id);
-    const userId = loadUserProfile()?.$id ?? null;
+    const userId = loadUserProfile()?.id ?? null;
     if (userId) deleteRemoteSystemPrompt(userId, id).catch(() => {});
     setConfirmDelete(null);
     await reload();

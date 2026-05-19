@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Sparkles, Loader2 } from "lucide-react";
 import { APP_URL, API_BASE_URL } from "@/config/constants";
-import { saveAuthToken, loadAuthToken, verifyToken, saveUserProfile } from "@/lib/storage/auth";
+import { saveAuthToken, loadAuthToken, verifyToken, saveUserProfile, loadUserProfile, clearUserProfile } from "@/lib/storage/auth";
 
 // Lazy-import Appwrite modules to prevent gate crash if appwrite isn't configured
 type AppwriteModule = Awaited<typeof import("@/lib/appwrite")>;
@@ -40,6 +40,21 @@ export default function Gate() {
   const [status, setStatus] = useState<"idle" | "checking" | "waiting" | "done">("checking");
   const [error, setError] = useState<string | null>(null);
 
+  // When the gate window is re-shown after a sign-out (via lock_app), the React
+  // tree is still alive and frozen in "done" state from the initial auth check.
+  // Detect this by watching for the document becoming visible while status is
+  // "done" but the user profile has been cleared — reset to the sign-in form.
+  useEffect(() => {
+    const reset = () => {
+      if (!document.hidden && status === "done" && !loadUserProfile()) {
+        setStatus("idle");
+        setError(null);
+      }
+    };
+    document.addEventListener("visibilitychange", reset);
+    return () => document.removeEventListener("visibilitychange", reset);
+  }, [status]);
+
   // On mount: check for existing session (Appwrite first, then legacy)
   useEffect(() => {
     (async () => {
@@ -51,6 +66,51 @@ export default function Gate() {
         return;
       }
 
+      // ── Fast path: cached profile → unlock immediately, re-verify in background ──
+      // Prevents the gate window from flashing open for already-authenticated users
+      // when the network is slow or temporarily unavailable (e.g. app restart offline).
+      const cachedProfile = loadUserProfile();
+      if (cachedProfile) {
+        setStatus("done");
+        await unlockAndSync(); // sets AuthState, shows pill bar, gate stays hidden
+
+        // Silent background re-verification — runs after a short delay so the
+        // dashboard reload triggered by unlock_app can fully settle before we
+        // touch localStorage.  This avoids a race where the sidebar mounts
+        // during the reload and reads a null profile (showing "Sign in").
+        //
+        // Rules:
+        //  • Session still valid  → refresh the stored profile (silent)
+        //  • Session expired/null → clear profile so the NEXT app restart
+        //                           runs a full re-check and shows the gate.
+        //                           We never call show_gate here — no mid-
+        //                           session disruption.
+        //  • Network error        → do nothing (offline grace, keep profile)
+        //  • Appwrite not configured → skip (legacy JWT users; JWT is in
+        //                           sessionStorage and self-clears on restart)
+        ;(async () => {
+          await new Promise<void>((r) => setTimeout(r, 1500));
+          try {
+            const aw = await getAppwrite();
+            if (!aw.isAppwriteConfigured()) return;
+            const awUser = await aw.getActiveSession();
+            if (awUser) {
+              const profile = await aw.resolveUserProfile(awUser);
+              saveUserProfile(profile);
+            } else {
+              // Expired — clear silently so next startup forces re-auth.
+              // Do NOT call show_gate; do NOT clear authToken (it lives in
+              // sessionStorage which Tauri already wipes on every restart).
+              clearUserProfile();
+            }
+          } catch {
+            // Network unreachable — keep the cached profile, stay unlocked
+          }
+        })();
+        return;
+      }
+
+      // ── No cached profile: full verification path ──
       try {
         // Try Appwrite session first — always re-fetches from server, never uses cached profile
         const aw = await getAppwrite();

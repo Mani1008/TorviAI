@@ -1,5 +1,58 @@
 # Architecture of Desktop AI Assistant (Torvi)
 
+# Progress Update v0.5 (May 2026)
+
+**This section documents the Context Memory feature added in v0.5.**
+
+## Context Memory — Screen-Aware RAG
+
+Torvi now maintains a continuously updated local knowledge base of what the user is doing on screen, which is injected into AI prompts automatically (Retrieval-Augmented Generation).
+
+### How it works
+
+1. **Screen Reader** (`src-tauri/src/screen_reader.rs`) — reads visible text from the foreground window every 2 seconds using the Windows **UIAutomation COM API**. No screenshot is taken — only structured text is extracted (~50ms, natively skips password fields).
+
+2. **Privacy Filter** (`src-tauri/src/privacy_filter.rs`) — applied to every capture before storage or emission:
+   - `should_capture()` — drops the whole snapshot for sensitive apps (1Password, KeePass, banking sites, etc.)
+   - `redact_sensitive()` — strips PII patterns: credit cards, SSNs, API keys (`sk-`, `ghp_`, `AIza`, `AKIA`…), and OTPs
+
+3. **Context Watcher** (`src-tauri/src/app_context.rs`) — background Tokio task polling every 2 seconds:
+   - Deduplicates by SHA-256 content hash (no repeated identical captures)
+   - Emits `context-captured` Tauri event to the frontend
+   - Writes directly to SQLite via `ContextDb` (bypasses `tauri-plugin-sql` IPC which silently dropped INSERTs)
+
+4. **Context DB** (`src-tauri/src/context_db.rs`) — direct `sqlx` writer using WAL journal mode to coexist with the `tauri-plugin-sql` read pool:
+   - Table: `context_chunks` (id, app_name, window_title, content_type, text_content, content_hash, captured_at, url, parent_capture_id, chunk_index)
+   - Chunking strategy per content_type:
+     - `chat` → split on speaker-turn boundaries
+     - `email` → split on "From:" / reply markers
+     - `code` → split on top-level declarations (fn/class/interface)
+     - `document` → split on markdown headings or blank lines
+     - `generic` → sliding window: 600-char with 100-char overlap
+
+5. **Context Store** (`src/lib/database/context-store.ts`) — TypeScript read layer for the `context_chunks` table; used by the AI prompt builder for BM25-style retrieval.
+
+6. **Context Memory Page** (`/context-memory`) — dashboard page for viewing captured context chunks, per-app history, and toggling the watcher on/off.
+
+### Tauri commands added
+| Command | Purpose |
+|---------|---------|
+| `start_context_watcher` | Start background polling (no-op if already running) |
+| `stop_context_watcher` | Stop background polling |
+| `read_active_window_context` | One-shot foreground window read |
+
+### Tauri events emitted
+| Event | Payload |
+|-------|---------|
+| `context-captured` | `AppContextSnapshot { app_name, window_title, text_content, content_type, content_hash, url, captured_at }` |
+
+### Design notes
+- Windows-only (UIAutomation is a Windows API). macOS/Linux return an error gracefully.
+- The `ContextDb` sqlx pool uses WAL mode so it can write concurrently with the JS-side read pool.
+- 24-hour rolling window is enforced on retrieval (not on storage) to keep the knowledge base fresh.
+
+---
+
 # Progress Update v0.4 (May 2026)
 
 **This section summarizes the latest improvements as of May 2026.**
@@ -230,7 +283,7 @@ Each interview/meeting role is mapped to the model best suited to its task chara
 
 ### Key Metrics
 - **App Size**: ~10MB (vs 270MB for Cluely)
-- **Version**: v0.1.8
+- **Version**: v0.5
 - **License**: GPL-3.0
 - **Platforms**: Windows, macOS, Linux
 
@@ -304,7 +357,7 @@ Each interview/meeting role is mapped to the model best suited to its task chara
 │  │                                                                      │   │
 │  │  ┌──────────┐  ┌───────────┐  ┌───────────────┐  ┌──────────────┐ │   │
 │  │  │  Pages   │  │ Components│  │    Hooks       │  │   Contexts   │ │   │
-│  │  │(9 routes)│→ │(UI + feat)│← │(business logic)│← │(global state)│ │   │
+│  │  │(11 routes│→ │(UI + feat)│← │(business logic)│← │(global state)│ │   │
 │  │  └──────────┘  └───────────┘  └───────┬───────┘  └──────────────┘ │   │
 │  │                                        │                            │   │
 │  │  ┌────────────────────────────────────┼────────────────────────┐   │   │
@@ -333,7 +386,7 @@ Each interview/meeting role is mapped to the model best suited to its task chara
 │  │  │ license) │ │ overlay)  │ │ sizing)  │ │ bindings)         ││   │
 │  │  └──────────┘ └───────────┘ └──────────┘ └────────────────────┘│   │
 │  │  ┌──────────┐ ┌────────────────────────────────────────────────┐│   │
-│  │  │activate.rs│ │ speaker/ (platform-specific audio)            ││   │
+│  │  │usage.rs  │ │ speaker/ (platform-specific audio)            ││   │
 │  │  │(license   │ │  ├─ windows.rs (WASAPI)                      ││   │
 │  │  │ mgmt)     │ │  ├─ macos.rs   (Core Audio + cidre)          ││   │
 │  │  └──────────┘ │  └─ linux.rs   (PulseAudio)                   ││   │
@@ -383,7 +436,7 @@ torvi-master/
 │   ├── vite-env.d.ts         # Vite type declarations
 │   │
 │   ├── routes/
-│   │   └── index.tsx         # React Router route definitions (9 routes)
+│   │   └── index.tsx         # React Router route definitions (11 routes)
 │   │
 │   ├── pages/                # ─── Page-level components ───
 │   │   ├── app/              # Main overlay window (AI chat interface)
@@ -507,26 +560,33 @@ torvi-master/
 │   ├── build.rs              # Build script
 │   ├── info.plist            # macOS app permissions
 │   │
-│   ├── capabilities/         # Tauri capability permissions
+│   ├── capabilities/         # Tauri capability permissions (per-window scoping)
 │   │   ├── default.json      # Default permissions set
-│   │   └── cross-platform.json # Platform-specific permissions
+│   │   ├── main.json         # Pill bar overlay window capabilities
+│   │   ├── dashboard.json    # Dashboard window capabilities
+│   │   └── gate.json         # Auth gate window capabilities
 │   │
 │   └── src/
-│       ├── main.rs           # Entry point → torvi_lib::run()
-│       ├── lib.rs            # Tauri setup, plugins, state, invoke handler
-│       ├── api.rs            # Torvi API (chat streaming, transcription, models)
-│       ├── activate.rs       # License activation/deactivation/validation
-│       ├── capture.rs        # Screenshot capture (multi-monitor, DPI-aware)
-│       ├── shortcuts.rs      # Global shortcut management + action routing
-│       ├── window.rs         # Window positioning, sizing, dashboard creation
+│       ├── main.rs             # Entry point → torvi_lib::run()
+│       ├── lib.rs              # Tauri setup, plugins, state, invoke handler
+│       ├── api.rs              # AI streaming, STT, license check, model fetch
+│       ├── capture.rs          # Screenshot capture (multi-monitor, DPI-aware)
+│       ├── shortcuts.rs        # Global shortcut management + action routing
+│       ├── window.rs           # Window positioning, sizing, gate lifecycle
+│       ├── auth.rs             # OAuth callback server, token helpers
+│       ├── usage.rs            # Server-side rate limits (APPWRITE_API_SECRET)
+│       ├── audio_capture.rs    # Audio capture helpers
+│       ├── streaming_stt.rs    # Real-time streaming STT pipeline
+│       ├── screen_reader.rs    # UIAutomation foreground window text reader (Windows)
+│       ├── app_context.rs      # Background context watcher (polls every 2s, deduplicates)
+│       ├── context_db.rs       # Direct sqlx writer for context_chunks (WAL mode)
+│       ├── privacy_filter.rs   # PII redaction: CC#, SSN, API keys, OTPs
 │       │
-│       ├── db/               # Database layer
-│       │   ├── main.rs       # SQL operations (conversation/message CRUD)
-│       │   └── migrations/   # Schema migration SQL files
-│       │       ├── chat-history.sql
-│       │       └── system-prompts.sql
+│       ├── migrations/         # SQLite schema SQL files
+│       │   ├── 001_system_prompts.sql
+│       │   └── 002_chat_history.sql
 │       │
-│       └── speaker/          # Platform-specific audio capture
+│       └── speaker/            # Platform-specific audio capture
 │           ├── mod.rs        # Trait definitions, shared types
 │           ├── commands.rs   # Tauri command handlers
 │           ├── windows.rs    # Windows WASAPI implementation
@@ -570,17 +630,17 @@ The app has **two rendering modes** based on the Tauri window label:
 **File**: `src/routes/index.tsx`
 
 ```
-/                           → App (main overlay window — AI chat)
-├── /dashboard              → Dashboard (overview, stats, quick actions)
-├── /chats                  → Chats (conversation list)
-│   └── /chats/view/:id    → Chat viewer (specific conversation)
-├── /system-prompts         → System prompts CRUD
-├── /shortcuts              → Global shortcuts configuration
-├── /screenshot             → Screenshot mode settings
-├── /settings               → AI/STT provider configuration
-├── /audio                  → Audio input device selection
-├── /responses              → Response length/language settings
-└── /dev-space              → Developer tools
+/                               → App (main overlay window — AI chat)
+/gate                           → Gate (auth sign-in window)
+/dashboard                      → Dashboard (overview, stats, quick actions)
+/chats                          → Chats (conversation list)
+/chats/view/:conversationId     → Chat viewer (specific conversation)
+/settings                       → AI/STT provider configuration
+/shortcuts                      → Global shortcuts configuration
+/screenshot                     → Screenshot mode settings
+/responses                      → Response length/language settings
+/billing                        → Plan & billing (3-tier pricing)
+/context-memory                 → Context Memory (captured screen context viewer)
 ```
 
 Layouts:
@@ -600,16 +660,16 @@ Layouts:
 | Page | Route | Key Responsibilities |
 |------|-------|---------------------|
 | **App** | `/` | Main overlay: text input, AI chat, file attachments, screenshot, audio |
+| **Gate** | `/gate` | Auth sign-in window (shown hidden; React controls visibility) |
 | **Dashboard** | `/dashboard` | Overview stats, quick actions, activity chart |
 | **Chats** | `/chats` | Conversation list with search, delete, view |
-| **Chat Viewer** | `/chats/view/:id` | Full conversation view with continue-chat |
+| **Chat Viewer** | `/chats/view/:conversationId` | Full conversation view with continue-chat |
 | **Settings** | `/settings` | AI/STT provider selection, API key entry, custom providers |
-| **Audio** | `/audio` | Audio input device selection and testing |
 | **Screenshot** | `/screenshot` | Auto/manual mode, screenshot prompt configuration |
 | **Responses** | `/responses` | Response length (short/medium/auto), language selection |
-| **System Prompts** | `/system-prompts` | CRUD for system prompt templates (8 defaults) |
 | **Shortcuts** | `/shortcuts` | Global shortcut key binding editor |
-| **Dev Space** | `/dev-space` | Developer/debug tools |
+| **Billing** | `/billing` | 3-tier pricing cards (Starter ₹0, Plus, Pro) with GST + add-ons |
+| **Context Memory** | `/context-memory` | View captured screen context chunks; toggle watcher on/off |
 
 ### 5.5 Components
 
@@ -618,38 +678,31 @@ Layouts:
 DashboardLayout
 ├── Sidebar (navigation links, icons, active state)
 ├── PageLayout
-│   ├── Header (title, description, right actions slot, back button)
-│   ├── ScrollArea (page content)
-│   └── Promote (promotional banner)
+│   ├── Header (title, description, right actions slot)
+│   └── ScrollArea (page content)
 └── ErrorBoundary → ErrorLayout
 
 App (overlay window)
-├── CustomCursor (configurable cursor type)
-├── DragButton (window drag handle)
-├── TextInput (message input + file attachments)
+├── TextInput (message input + file attachments, up to 6)
 ├── Markdown (AI response renderer)
 │   └── CopyButton (code block copy)
-├── Overlay (screenshot selection canvas)
-└── GetLicense / Contribute (CTAs)
+├── UsageTimer (remaining AI responses + listening time display)
+├── Onboarding (first-run flow)
+└── Toast notifications
 ```
 
 #### Feature Components
 
 | Component | Purpose |
 |-----------|---------|
-| `Sidebar` | Left navigation with route links, provider indicator, license status |
+| `Sidebar` | Left navigation with route links, provider indicator, plan status |
 | `Header` | Page header with title, description, optional right-side actions |
 | `Markdown` | Rich markdown renderer with syntax highlighting (shiki), KaTeX math, copy buttons |
 | `TextInput` | Enhanced input: text + file drop/paste (up to 6), keyboard shortcuts |
-| `Selection` | Multi-select dropdown component |
-| `Overlay` | Full-screen canvas overlay for screenshot region selection |
-| `CustomCursor` | Renders custom cursor (invisible/default/auto modes) |
-| `DragButton` | Draggable button for window repositioning |
-| `Updater` | Auto-update notification with install/dismiss |
-| `GetLicense` | License key activation form |
-| `Promote` | Promotional/feature banner |
-| `Contribute` | Open-source contribution CTA |
-| `Icons` | Custom SVG icon definitions |
+| `UsageTimer` | Real-time display of remaining AI responses and listening seconds |
+| `Onboarding` | First-run onboarding flow |
+| `Toast` | Toast notification system |
+| `Tooltip` | Accessible tooltip wrapper |
 
 #### UI Primitives (Shadcn/Radix)
 All in `src/components/ui/`: Button, Dialog, Dropdown Menu, Input, Label, Popover, Scroll Area, Select, Slider, Switch, Tabs, Card, Badge, Command, Chart, Empty, Toast/Sonner.
@@ -720,21 +773,13 @@ interface ThemeContextType {
 
 | Hook | File | Category | Purpose |
 |------|------|----------|---------|
-| `useApp` | `useApp.ts` | **Core** | App init, shortcut setup, localStorage→SQLite migration, window visibility |
 | `useCompletion` | `useCompletion.ts` | **Core** | Main overlay: message state, file attachments, AI streaming, screenshot |
-| `useChatCompletion` | `useChatCompletion.ts` | **Core** | Chat page: conversation-scoped chat, auto-save (500ms debounce), title gen |
 | `useSystemAudio` | `useSystemAudio.ts` | **Core** | System audio capture, VAD, transcription streaming, quick actions |
-| `useGlobalShortcuts` | `useGlobalShortcuts.ts` | **Core** | Register/unregister 7 global shortcuts, platform-aware keys |
-| `useSettings` | `useSettings.ts` | **Config** | Provider variable extraction, screenshot config, provider switching |
-| `useCustomProvider` | `useCustomProvider.ts` | **Config** | Custom AI provider CRUD with curl validation |
-| `useCustomSttProviders` | `useCustomSttProviders.ts` | **Config** | Custom STT provider CRUD |
-| `useShortcuts` | `useShortcuts.ts` | **Config** | Shortcut binding editor, conflict detection |
+| `useElevenLabsSTT` | `useElevenLabsSTT.ts` | **Core** | ElevenLabs real-time STT integration |
+| `useSpeechToText` | `useSpeechToText.ts` | **Core** | Generic STT hook wrapper |
 | `useHistory` | `useHistory.ts` | **Data** | Conversation list, fetch, filter, pagination |
-| `useSystemPrompts` | `useSystemPrompts.ts` | **Data** | System prompt CRUD operations |
-| `useTitles` | `useTitles.ts` | **UI** | Window title sync with Tauri |
-| `useVersion` | `useVersion.ts` | **UI** | App version from Tauri |
 | `useWindow` | `useWindow.ts` | **UI** | Window height, dashboard toggle, window movement |
-| `useMenuItems` | `useMenuItems.tsx` | **UI** | Context menu builder |
+| `useToast` | `useToast.ts` | **UI** | Toast notification system |
 | `useCopyToClipboard` | `useCopyToClipboard.ts` | **UI** | Clipboard copy with success state |
 
 #### Key Hook: `useCompletion` (Main Overlay Logic)
@@ -817,9 +862,11 @@ All use `localStorage` with safe wrappers:
 |------|-------------|-----------------|
 | `helper.ts` | Safe localStorage wrapper | — |
 | `ai-providers.ts` | Custom AI providers + selection | `curl_custom_ai_providers`, `curl_selected_ai_provider` |
-| `stt-providers.ts` | Custom STT providers + selection | `curl_custom_speech_providers`, `curl_selected_stt_provider` |
-| `response-settings.storage.ts` | Length + language | `response_settings` |
+| `auth.ts` | Auth token / user profile persistence | `torvi_auth_*` |
+| `response-settings.storage.ts` | Response length + language | `response_settings` |
 | `shortcuts.storage.ts` | Shortcut bindings | `shortcuts` |
+| `usage.ts` | Session tracking (lifetime session counter) | `torvi_session_count` |
+| `usage-stats.ts` | Local usage stats display data | `torvi_usage_stats` |
 
 ### 5.10 Database Layer (`lib/database/`)
 
@@ -845,6 +892,20 @@ getAllSystemPrompts()
 updateSystemPrompt(id, name, prompt)
 deleteSystemPrompt(id)
 ```
+
+#### `context-store.ts` (v0.5)
+Frontend read layer for the `context_chunks` table written by Rust's `ContextDb`.
+Used by the AI prompt builder for RAG retrieval (BM25-style keyword matching over the last 24h).
+
+```typescript
+getRecentContextChunks(limit: number): Promise<ContextChunk[]>
+getContextByApp(appName: string): Promise<ContextChunk[]>
+searchContext(query: string): Promise<ContextChunk[]>
+clearOldChunks(olderThanSecs: number): Promise<void>
+```
+
+#### `screenshots.ts`
+Stores screenshot metadata for the screenshot sync Appwrite module.
 
 ### 5.11 Types
 
@@ -913,16 +974,13 @@ interface Shortcut {
 
 ### 5.12 Config & Constants
 
-#### `config/ai-providers.constants.ts`
-10 built-in AI providers, each defined as:
-```typescript
-{ id, curl (template), responseContentPath, streaming }
-```
-Providers: **OpenAI, Claude, Grok, Gemini, Mistral, Cohere, Groq, Perplexity, OpenRouter, Ollama**
+#### `config/models.constants.ts`
+AI model definitions used across the role-based model selector. Maps model IDs to display names, context windows, and capabilities.
 
-#### `config/stt.constants.ts`
-10 built-in STT providers:
-**OpenAI Whisper, Groq Whisper, ElevenLabs, Google, Deepgram, Azure, Speechmatics, Rev.ai, IBM Watson** + custom
+#### `config/interview-roles.constants.ts`
+Role → Model mapping (`ROLE_MODEL_MAP`). Each interview/meeting role maps to the best-fit model — see Role → Model Mapping table in Progress Update v0.3.
+
+The 10 built-in AI providers (OpenAI, Claude, Grok, Gemini, Mistral, Cohere, Groq, Perplexity, OpenRouter, Ollama) and 9 STT providers are defined inline in the settings page and stored to localStorage via `ai-providers.ts`.
 
 #### `config/shortcuts.ts`
 7 default global shortcuts:
@@ -986,19 +1044,43 @@ fn main() {
 | `get_stored_credentials()` | Read secure storage (license, instance ID) |
 | `secure_storage_*` | CRUD for secure app data |
 
-#### `activate.rs` — License Management
+#### `usage.rs` — Server-Side Rate Limits (v0.4)
+All Appwrite `user_usage` writes go through here using `APPWRITE_API_SECRET`. Users have read-only access and cannot forge counter increments.
 | Command | Purpose |
 |---------|---------|
-| `activate_license_api()` | Activate license key → store securely |
-| `deactivate_license_api()` | Deactivate license |
-| `validate_license_api()` | Check license validity |
-| `mask_license_key_cmd()` | Mask key for UI display |
-| `get_checkout_url()` | Get payment URL |
+| `initialize_user_usage()` | Idempotent doc creation with plan's starting limits |
+| `decrement_usage()` | Atomic field decrement via REST PATCH |
+| `push_local_usage()` | One-way ratchet: writes only if local shows more usage than remote |
 
-Secure storage: `{app_data_dir}/secure_storage.json`
-- `torvi_license_key`
-- `torvi_instance_id` (generated once with `uuid`)
-- `selected_torvi_model`
+#### `screen_reader.rs` — UIAutomation Screen Reader (v0.5)
+Reads visible text from the foreground window via the Windows UIAutomation COM API.
+- Returns `WindowContext { app_name, window_title, text_content, url, captured_at }`
+- Windows-only; returns error on macOS/Linux
+- Dispatched to a blocking thread pool so COM calls don't block the Tokio executor
+
+| Command | Purpose |
+|---------|---------|
+| `read_active_window_context()` | One-shot foreground window text read |
+
+#### `app_context.rs` — Context Watcher (v0.5)
+Background Tokio task that polls `screen_reader` every 2 seconds.
+- Applies `privacy_filter` → deduplicates by SHA-256 hash → emits `context-captured` event → writes to SQLite via `ContextDb`
+- `AppContextState { running: Arc<AtomicBool> }` — managed Tauri state
+
+| Command | Purpose |
+|---------|---------|
+| `start_context_watcher()` | Start background polling (no-op if already running) |
+| `stop_context_watcher()` | Stop background polling |
+
+#### `context_db.rs` — Direct SQLite Writer (v0.5)
+Uses `sqlx` directly (bypasses `tauri-plugin-sql` IPC which silently dropped INSERTs).
+WAL journal mode allows concurrent reads by the JS-side pool.
+Writes to `context_chunks` table in the same `ai_assistant.db` file.
+
+#### `privacy_filter.rs` — PII Redaction (v0.5)
+Applied to every `WindowContext` before storage/emission:
+- `should_capture()` — drops whole snapshot for sensitive apps (password managers, banking)
+- `redact_sensitive()` — strips: credit card numbers, SSNs, API keys (`sk-`, `ghp_`, `AIza`, `AKIA`…), OTPs
 
 #### `capture.rs` — Screenshot System
 | Command | Purpose |
@@ -1028,14 +1110,17 @@ Features:
 
 Global handler routes shortcut events to frontend via `shortcut_triggered` event.
 
-#### `window.rs` — Window Management
+#### `window.rs` — Window Management & Gate Lifecycle
 | Command | Purpose |
 |---------|---------|
 | `set_window_height()` | Dynamically adjust window height |
 | `open_dashboard()` | Create/show dashboard window |
 | `toggle_dashboard()` | Show/hide dashboard |
 | `move_window()` | Move window (arrow key directions) |
-| `setup_main_window()` | Initial position: top-center, 54px offset |
+| `unlock_app()` | Gate → show pill bar, hide gate (only callable from "gate" window) |
+| `lock_app()` | Sign-out → hide pill bar, show gate (only from "dashboard"/"main") |
+| `show_gate()` | Make gate visible for sign-in UI (only from "gate") |
+| `create_gate_hidden()` | Create gate window hidden on startup |
 
 ### 6.3 Database & Migrations
 
@@ -1455,7 +1540,7 @@ Has active license AND Torvi API enabled?
 | Custom Providers | useCustomProvider | — | localStorage |
 | System Prompts | useSystemPrompts | db/ | SQLite |
 | Global Shortcuts | useGlobalShortcuts | shortcuts.rs | localStorage |
-| License | GetLicense component | activate.rs | secure_storage.json |
+| License/Usage | billing page, UsageTimer | usage.rs + Appwrite | Appwrite user_usage |
 | Theming | ThemeContext | — | localStorage |
 | Window Controls | useWindow, DragButton | window.rs | — |
 | Auto-Update | updater component | tauri-plugin-updater | — |
@@ -2046,7 +2131,7 @@ src-tauri/
     ├── main.rs                # Entry: torvi_lib::run()
     ├── lib.rs                 # Plugin init, state, 30+ command handlers
     ├── api.rs                 # AI streaming, STT, models, license check
-    ├── activate.rs            # License activate/deactivate/validate
+    ├── usage.rs               # Server-side rate limits (APPWRITE_API_SECRET)
     ├── capture.rs             # Multi-monitor screenshot + overlay
     ├── window.rs              # Position, size, dashboard creation
     ├── shortcuts.rs           # Global shortcut management
@@ -2299,7 +2384,7 @@ npm run tauri build # Full app build (frontend + Rust)
 
 2. **Setup Rust backend**
    - Add Tauri plugins: sql, http, global-shortcut, updater, keychain, shell, opener, autostart
-   - Create module structure: api.rs, window.rs, shortcuts.rs, capture.rs, activate.rs
+   - Create module structure: api.rs, window.rs, shortcuts.rs, capture.rs, usage.rs, screen_reader.rs, app_context.rs
    - Setup SQLite with migration system
 
 3. **Setup frontend structure**
@@ -3175,13 +3260,10 @@ User types message and presses Enter
 │  │  └── Internal: fetch_api_response_config(), user_activity(), │
 │  │       report_api_error(), get_stored_credentials()           │
 │  │                                                               │
-│  ├── activate.rs ─── License management                         │
-│  │  ├── activate_license_api() — key + machine binding          │
-│  │  ├── deactivate_license_api() — server deactivation          │
-│  │  ├── validate_license_api() — periodic validation            │
-│  │  ├── mask_license_key_cmd() — display masking                │
-│  │  ├── get_checkout_url() — payment redirect                   │
-│  │  └── secure_storage_save/get/remove() — encrypted JSON CRUD  │
+│  ├── usage.rs ─── Server-side rate limits (Appwrite)             │
+│  │  ├── check_and_increment_usage() — per-request rate limiting  │
+│  │  ├── get_usage_stats() — fetch current usage for UI          │
+│  │  └── Uses APPWRITE_API_SECRET (server-side only, not client) │
 │  │                                                               │
 │  ├── capture.rs ─── Screenshot system                           │
 │  │  ├── start_screen_capture() — multi-monitor capture + overlay│
@@ -3357,10 +3439,10 @@ User types message and presses Enter
 | `{APP_ENDPOINT}/api/error` | Report API errors | api.rs |
 | `{APP_ENDPOINT}/api/models` | Fetch available model list | api.rs |
 | `{APP_ENDPOINT}/api/prompt` | Store system prompts server-side | api.rs |
-| `{PAYMENT_ENDPOINT}/activate` | License activation + machine binding | activate.rs |
-| `{PAYMENT_ENDPOINT}/validate` | License validity check | activate.rs |
-| `{PAYMENT_ENDPOINT}/deactivate` | License deactivation | activate.rs |
-| `{PAYMENT_ENDPOINT}/checkout` | Get payment page URL | activate.rs |
+| `{PAYMENT_ENDPOINT}/activate` | License activation + machine binding | api.rs     |
+| `{PAYMENT_ENDPOINT}/validate` | License validity check | api.rs     |
+| `{PAYMENT_ENDPOINT}/deactivate` | License deactivation | api.rs     |
+| `{PAYMENT_ENDPOINT}/checkout` | Get payment page URL | api.rs     |
 | `torvi.com/api/update` | Auto-update check (latest version + artifacts) | tauri.conf.json |
 
 ### 23.3 Third-Party Libraries (Frontend)
@@ -3368,7 +3450,7 @@ User types message and presses Enter
 | Library | Version | Purpose |
 |---------|---------|---------|
 | **React** | 19.1.0 | UI framework |
-| **React Router** | 7.9.5 | Client-side routing (9 routes) |
+| **React Router** | 7.9.5 | Client-side routing (11 routes) |
 | **react-markdown** | 10.x | Markdown → React rendering |
 | **remark-gfm** | — | GitHub Flavored Markdown tables, strikethrough |
 | **remark-math** | — | Math equation parsing |

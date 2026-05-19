@@ -127,7 +127,7 @@ function ContextPanel({ status, onResume, onPause, onClose, onManage }: ContextP
     setResuming(true);
     try {
       await invoke("start_context_watcher");
-      sessionStorage.removeItem("ctx_watcher_paused"); // clear user pause intent
+      localStorage.removeItem("ctx_watcher_paused"); // clear user pause intent
       onResume();
     } finally {
       setResuming(false);
@@ -137,7 +137,7 @@ function ContextPanel({ status, onResume, onPause, onClose, onManage }: ContextP
   const handlePause = async () => {
     try {
       await invoke("stop_context_watcher");
-      sessionStorage.setItem("ctx_watcher_paused", "1"); // remember user pause intent
+      localStorage.setItem("ctx_watcher_paused", "1"); // remember user pause intent
       onPause();
     } catch { /* ignore */ }
   };
@@ -222,7 +222,8 @@ export function Sidebar(_props?: SidebarProps) {
   const [contextPanelOpen, setContextPanelOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [recentsExpanded, setRecentsExpanded] = useState(false);
-  const { conversations } = useHistory();
+  const [searchQuery, setSearchQuery] = useState("");
+  const { conversations, hasMorePages, isLoadingMore, loadMore, setSearch } = useHistory();
   const navigate = useNavigate();
 
   // Poll context watcher status every 3 s
@@ -248,7 +249,13 @@ export function Sidebar(_props?: SidebarProps) {
     ? conversations
     : conversations.slice(0, RECENT_COLLAPSED_COUNT);
 
-  const hasMore = conversations.length > RECENT_COLLAPSED_COUNT;
+  const hasMoreLocal = conversations.length > RECENT_COLLAPSED_COUNT;
+
+  // Sync local search state into the hook (debounced via state change)
+  useEffect(() => {
+    setSearch(searchQuery);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   return (
     <aside className="relative flex h-full w-[200px] shrink-0 flex-col overflow-hidden border-r border-border/70 bg-sidebar">
@@ -281,11 +288,27 @@ export function Sidebar(_props?: SidebarProps) {
         </div>
 
         {/* Recents */}
-        {conversations.length > 0 && (
-          <div className="mt-4">
-            <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-widest text-foreground/30">
-              Recents
-            </p>
+        <div className="mt-4">
+          <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-widest text-foreground/30">
+            Recents
+          </p>
+
+          {/* Search box */}
+          <div className="px-2.5 pb-1.5">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search chats…"
+              className="w-full rounded-md border border-border/50 bg-neutral-100/60 px-2 py-1 text-[11px] text-foreground/70 placeholder:text-foreground/30 outline-none focus:border-indigo-400/50 focus:bg-neutral-100/80 transition-colors"
+            />
+          </div>
+
+          {conversations.length === 0 ? (
+            searchQuery ? (
+              <p className="px-2.5 py-1 text-[11px] text-foreground/30">No results</p>
+            ) : null
+          ) : (
             <div className="space-y-0.5">
               {visibleConversations.map((conv) => (
                 <button
@@ -299,7 +322,8 @@ export function Sidebar(_props?: SidebarProps) {
                 </button>
               ))}
 
-              {hasMore && (
+              {/* Expand to show all loaded conversations */}
+              {hasMoreLocal && (
                 <button
                   onClick={() => setRecentsExpanded((v) => !v)}
                   className="flex w-full items-center gap-1 rounded-md px-2.5 py-1 text-[11px] text-foreground/35 hover:text-foreground/55 transition-colors"
@@ -317,9 +341,21 @@ export function Sidebar(_props?: SidebarProps) {
                   )}
                 </button>
               )}
+
+              {/* Load next page from DB */}
+              {recentsExpanded && hasMorePages && (
+                <button
+                  onClick={loadMore}
+                  disabled={isLoadingMore}
+                  className="flex w-full items-center gap-1 rounded-md px-2.5 py-1 text-[11px] text-foreground/35 hover:text-foreground/55 transition-colors disabled:opacity-50"
+                >
+                  <ChevronDown className="h-3 w-3 shrink-0" />
+                  {isLoadingMore ? "Loading…" : "Load more"}
+                </button>
+              )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Tools — collapsible */}
         <div className="mt-4">

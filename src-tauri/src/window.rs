@@ -279,6 +279,55 @@ pub async fn set_window_height(window: WebviewWindow, height: f64) -> Result<(),
     Ok(())
 }
 
+/// Collapse the pill bar to icon mode.
+///
+/// Shrinks the window to 48×44 logical px and shifts it right by
+/// (600 - 48) / 2 logical pixels so the small icon window stays visually
+/// centred over the spot where the pill bar was. Returns the original
+/// physical-pixel x coordinate so TypeScript can restore it on expand.
+#[tauri::command]
+pub async fn collapse_pill_to_icon(window: WebviewWindow) -> Result<i32, String> {
+    let pos = window.outer_position().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let shift = (((600.0 - 48.0) / 2.0) * scale) as i32;
+    window
+        .set_size(LogicalSize::new(48.0_f64, 44.0_f64))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_position(tauri::PhysicalPosition::new(pos.x + shift, pos.y))
+        .map_err(|e| e.to_string())?;
+    Ok(pos.x)
+}
+
+/// Expand the pill bar from icon mode.
+///
+/// Restores the window to 600×`height` logical px and moves it back to
+/// `original_x` (the physical-pixel x returned by `collapse_pill_to_icon`).
+/// Pass `original_x = -1` on first run (no stored position); the command
+/// will infer it by reversing the collapse shift.
+#[tauri::command]
+pub async fn expand_pill_from_icon(
+    window: WebviewWindow,
+    original_x: i32,
+    height: f64,
+) -> Result<(), String> {
+    let pos = window.outer_position().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let x = if original_x >= 0 {
+        original_x
+    } else {
+        // No stored position — reverse the collapse shift.
+        pos.x - (((600.0 - 48.0) / 2.0) * scale) as i32
+    };
+    window
+        .set_size(LogicalSize::new(600.0_f64, height))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_position(tauri::PhysicalPosition::new(x, pos.y))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Open the dashboard in a separate window.
 #[tauri::command]
 pub async fn open_dashboard(app: AppHandle) -> Result<(), String> {

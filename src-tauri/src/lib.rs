@@ -113,6 +113,8 @@ pub fn run() {
             window::open_gate,
             window::show_gate,
             window::set_window_height,
+            window::collapse_pill_to_icon,
+            window::expand_pill_from_icon,
             window::open_dashboard,
             window::toggle_dashboard,
             window::toggle_overlay,

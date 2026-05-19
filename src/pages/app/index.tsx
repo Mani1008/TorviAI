@@ -106,6 +106,20 @@ function StatusChip({ label, pulse = false }: { label: string; pulse?: boolean }
   );
 }
 
+// ─── Proactive context suggestion chips ─────────────────────────────────────
+// Maps context content_type → 2-3 quick-action suggestions shown in the pill
+// bar whenever the context watcher detects a switch to a new app/file.
+const CONTEXT_SUGGESTIONS: Record<string, string[]> = {
+  code:               ["Explain this",       "Review this code",  "What does this do?"],
+  document:           ["Summarize this",     "Key points?",       "Explain this"],
+  meeting:            ["Summarize meeting",  "Action items?",     "Key decisions?"],
+  email:              ["Summarize this",     "Draft a reply",     "Key points?"],
+  chat:               ["Summarize conversation", "Key points?"],
+  project_management: ["What's the status?", "Summarize this"],
+  design:             ["Describe this",      "Feedback on this"],
+  generic:            ["Help with this",     "Summarize this",    "Explain this"],
+};
+
 export default function App() {
   useTransparentWindow();
   const { messages, isLoading, error, sendMessage, abort, clearMessages, clearError } =
@@ -139,6 +153,11 @@ export default function App() {
   const toast = useToast();
   const glassAlpha = transparency / 100;
 
+  // Proactive suggestion chips — shown below the toolbar when context switches.
+  const [suggestionChips, setSuggestionChips] = useState<string[] | null>(null);
+  const prevAppNameRef = useRef<string | null>(null);
+  const suggestionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Collapsed = floating Torvi icon. Expanded = full pill bar visible.
   // Persisted so the user's last preference survives restarts.
   const [isPillCollapsed, setIsPillCollapsedRaw] = useState(
@@ -148,6 +167,17 @@ export default function App() {
     localStorage.setItem("pill_collapsed", String(v));
     setIsPillCollapsedRaw(v);
   };
+
+  // isCollapsing: true while the pill-exit animation is playing (toolbar still
+  // rendered but folding closed before the window shrinks).
+  const [isCollapsing, setIsCollapsing] = useState(false);
+
+  // Physical-pixel x position of the window before the last collapse.
+  // Needed to restore the window's position on expand.
+  // -1 = never collapsed (expand command will infer position from current location).
+  const pillOriginalXRef = useRef<number>(
+    parseInt(localStorage.getItem("pill_original_x") ?? "-1") || -1
+  );
 
   // Auth gate — hide the pill bar if no valid session exists.
   // This covers the case where the window was left visible from a previous session
@@ -228,24 +258,53 @@ export default function App() {
     };
   }, []);
 
-  // Resize window: 44px (icon / toolbar), 88px (+tooltip), 110px (intensity), 600px (panel)
+  // Resize window height — only while the pill bar is visible (not collapsed or collapsing).
+  // Width and x-position are handled by collapse_pill_to_icon / expand_pill_from_icon.
+  const hasSuggestions = !isExpanded && !!suggestionChips?.length;
   useEffect(() => {
+    if (isPillCollapsed || isCollapsing) return;
     import("@tauri-apps/api/core").then(({ invoke }) => {
-      if (isPillCollapsed) {
-        invoke("set_window_height", { height: 44 }).catch(() => {});
-        return;
-      }
       let height = 44;
       if (isExpanded) height = 600;
       else if (showIntensity) height = 110;
       else if (tooltipHovered) height = 88;
+      else if (hasSuggestions) height = 82;
       invoke("set_window_height", { height }).catch(() => {});
     });
-  }, [isExpanded, showIntensity, tooltipHovered, isPillCollapsed]);
+  }, [isExpanded, showIntensity, tooltipHovered, isPillCollapsed, isCollapsing, hasSuggestions]);
 
-  // Auto-expand from icon to pill when a response (or error) arrives
+  // Animate the pill bar closed, shrink the Tauri window, then show the icon.
+  const startCollapse = useCallback(() => {
+    setIsCollapsing(true);
+    setTimeout(async () => {
+      if (isTauri()) {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const origX = await invoke<number>("collapse_pill_to_icon").catch(() => -1);
+        pillOriginalXRef.current = origX;
+        localStorage.setItem("pill_original_x", String(origX));
+      }
+      setIsCollapsing(false);
+      setIsPillCollapsed(true);
+    }, 380); // matches pill-exit animation duration
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Expand the Tauri window back to 600px, restore position, then show the toolbar.
+  const startExpand = useCallback(async () => {
+    if (isTauri()) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("expand_pill_from_icon", {
+        originalX: pillOriginalXRef.current,
+        height: 44,
+      }).catch(() => {});
+    }
+    setIsPillCollapsed(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-expand from icon to pill when a response (or error) arrives.
   useEffect(() => {
-    if (isExpanded) setIsPillCollapsed(false);
+    if (isExpanded && isPillCollapsed) startExpand();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isExpanded]);
 
@@ -331,6 +390,37 @@ export default function App() {
     return () => { u1?.(); u2?.(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Listen for context-captured events from the context watcher.
+  // Shows a subtle "reading: <app>" indicator and proactive suggestion chips
+  // whenever the user switches to a new app or file.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<{ app_name: string; content_type: string }>("context-captured", (e) => {
+        const { app_name, content_type } = e.payload;
+
+        // Show suggestion chips when switching to a new app/file
+        if (app_name && app_name !== prevAppNameRef.current) {
+          const chips = (CONTEXT_SUGGESTIONS[content_type] ?? CONTEXT_SUGGESTIONS.generic).slice(0, 3);
+          setSuggestionChips(chips);
+          if (suggestionTimerRef.current) clearTimeout(suggestionTimerRef.current);
+          suggestionTimerRef.current = setTimeout(() => setSuggestionChips(null), 30_000);
+        }
+        prevAppNameRef.current = app_name;
+      }).then((fn) => { unlisten = fn; });
+    });
+    return () => {
+      unlisten?.();
+      if (suggestionTimerRef.current) clearTimeout(suggestionTimerRef.current);
+    };
+  }, []);
+
+  // Clear suggestion chips as soon as the AI starts generating
+  // (no need to see chips while a response is already in flight).
+  useEffect(() => {
+    if (isLoading) setSuggestionChips(null);
+  }, [isLoading]);
 
   // Keyboard shortcuts — in-app bindings respect custom shortcuts saved in localStorage
   useEffect(() => {
@@ -424,9 +514,12 @@ export default function App() {
 
       {isPillCollapsed ? (
         /* ── Floating icon mode ── */
-        <div className="flex h-full items-center justify-center">
+        /* pointer-events-none on the centering wrapper so the transparent 600px-wide
+           dead zone on either side of the icon passes clicks through to windows below. */
+        <div className="flex h-full items-center justify-center pointer-events-none">
           <button
             className={`
+              pointer-events-auto
               h-10 w-10 rounded-full glass flex items-center justify-center
               transition-all duration-200 hover:brightness-125 cursor-default
               ${capturing || isMicListening ? "listening-glow" : ""}
@@ -452,7 +545,7 @@ export default function App() {
               document.addEventListener("pointerup", onUp);
             }}
             onClick={() => {
-              if (!iconDragRef.current) setIsPillCollapsed(false);
+              if (!iconDragRef.current) startExpand();
             }}
             title="Click to expand Torvi"
           >
@@ -484,8 +577,10 @@ export default function App() {
       )}
 
       {/* ══════════════ TOOLBAR PILL ══════════════ */}
+      {/* pill-enter on mount = unfold; pill-exit when isCollapsing = fold back in */}
       <div
         className={`
+          ${isCollapsing ? "pill-exit" : "pill-enter"}
           toolbar-bar glass
           flex items-center gap-1 px-2 h-10 min-h-10
           rounded-full mx-0.5 mt-0.5 overflow-hidden
@@ -507,7 +602,7 @@ export default function App() {
 
           <Tooltip label="Collapse to icon">
             <button
-              onClick={() => setIsPillCollapsed(true)}
+              onClick={startCollapse}
               className="toolbar-icon-btn no-drag"
             >
               <Minimize2 className="h-3.5 w-3.5" />
@@ -595,6 +690,38 @@ export default function App() {
           </Tooltip>
         </div>
       </div>
+
+      {/* ══════════════ SUGGESTION CHIPS ══════════════ */}
+      {/* Appear when context switches to a new app/file; auto-dismiss after 30 s */}
+      {hasSuggestions && (
+        <div
+          className="no-drag flex items-center gap-1.5 px-2.5 pt-1 pb-0.5"
+          style={{ animation: "fadeInUp 0.2s ease-out" }}
+        >
+          {suggestionChips!.map((chip) => (
+            <button
+              key={chip}
+              onClick={() => { setSuggestionChips(null); setSttText(chip); }}
+              className="
+                rounded-full px-2.5 py-0.5
+                text-[10px] text-white/55
+                border border-white/10
+                hover:border-indigo-400/40 hover:text-white/85 hover:bg-indigo-500/10
+                transition-all duration-150 cursor-default glass
+              "
+            >
+              {chip}
+            </button>
+          ))}
+          <button
+            onClick={() => setSuggestionChips(null)}
+            className="ml-auto text-white/20 hover:text-white/55 transition-colors text-[10px] cursor-default leading-none"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* ══════════════ RESPONSE PANEL ══════════════ */}
       {isExpanded && (

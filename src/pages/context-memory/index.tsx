@@ -88,7 +88,7 @@ export default function ContextMemory() {
           setIsWatching(true);
         } else {
           // If the user deliberately paused, respect that. Otherwise restart.
-          const userPaused = sessionStorage.getItem(PAUSE_KEY) === "1";
+          const userPaused = localStorage.getItem(PAUSE_KEY) === "1";
           if (!userPaused) {
             // Watcher stopped for a non-deliberate reason (HMR, crash, etc.).
             // Restart it automatically.
@@ -171,6 +171,25 @@ export default function ContextMemory() {
     };
   }, []);
 
+  // ── Poll watcher status every 2 s ─────────────────────────────────────────
+  // The sidebar (or any other surface) can pause/resume the watcher externally.
+  // This keeps isPaused / isWatching in sync without requiring a full page reload.
+  useEffect(() => {
+    const id = setInterval(() => {
+      invoke<string>("get_watcher_status")
+        .then((s) => {
+          if (s === "running") {
+            setIsPaused(false);
+          } else {
+            setIsPaused(true);
+            setIsWatching(false);
+          }
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => clearInterval(id);
+  }, []);
+
   // ── Periodic refresh ──────────────────────────────────────────────────────
   // Refresh every 30 s so "X ago" labels stay accurate and any capture that
   // slipped through the event listener (e.g. race condition, paused state) shows up.
@@ -189,12 +208,12 @@ export default function ContextMemory() {
   const handleTogglePause = async () => {
     if (isPaused) {
       await invoke("start_context_watcher").catch(console.error);
-      sessionStorage.removeItem(PAUSE_KEY); // user chose to resume
+      localStorage.removeItem(PAUSE_KEY); // user chose to resume
       setIsPaused(false);
       setIsWatching(true);
     } else {
       await invoke("stop_context_watcher").catch(console.error);
-      sessionStorage.setItem(PAUSE_KEY, "1"); // remember user's deliberate choice
+      localStorage.setItem(PAUSE_KEY, "1"); // remember user's deliberate choice
       setIsPaused(true);
       setIsWatching(false);
     }

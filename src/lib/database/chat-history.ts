@@ -117,6 +117,46 @@ export async function getAllConversations(): Promise<ChatConversation[]> {
   }));
 }
 
+export async function getConversationsPaged(
+  limit: number,
+  offset: number
+): Promise<ChatConversation[]> {
+  const conn = await getDb();
+  const rows = await conn.select<
+    { id: string; title: string; created_at: number; updated_at: number }[]
+  >("SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC LIMIT $1 OFFSET $2", [limit, offset]);
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    messages: [],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+export async function searchConversations(
+  query: string,
+  limit: number,
+  offset: number
+): Promise<ChatConversation[]> {
+  const conn = await getDb();
+  const rows = await conn.select<
+    { id: string; title: string; created_at: number; updated_at: number }[]
+  >(
+    "SELECT id, title, created_at, updated_at FROM conversations WHERE title LIKE $1 ORDER BY updated_at DESC LIMIT $2 OFFSET $3",
+    [`%${query}%`, limit, offset]
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    messages: [],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
 export async function updateConversation(
   id: string,
   title: string

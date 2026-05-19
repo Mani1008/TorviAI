@@ -265,6 +265,7 @@ Called by `useCompletion` before every AI request via `buildContextAwareSystemPr
 | `BM25_MIN_SCORE` | `0.5` | Minimum score to survive relevance filter |
 | `RECENCY_BONUS` | `3.0` | Additive score boost for chunks < 5 min old |
 | `RECENCY_FRESH_SECS` | `300` | Fresh-chunk window (5 minutes) |
+| `RAG_OVERHEAD_RESERVE` | `20,000` | Chars reserved for system prompt + history before RAG budget is counted (prevents oversized payloads) |
 
 **10-step pipeline:**
 
@@ -288,9 +289,57 @@ Called by `useCompletion` before every AI request via `buildContextAwareSystemPr
 - **`google-docs-needs-screen-reader` listener**: shows dismissable yellow banner prompting `Ctrl+Alt+Z`
 - **Focus reload**: `onFocusChanged` re-fetches DB when user returns to Torvi
 - **Periodic refresh**: `setInterval(loadChunks, 30_000)` keeps timestamps current
+- **Watcher status polling**: `setInterval(get_watcher_status, 2_000)` keeps `isPaused` / `isWatching` in sync with external changes (e.g. paused from Sidebar); updates UI indicator within ≤ 2 s
 - **Filter tabs**: All / Code / Docs / Email / Chat / Meeting / PM / Generic
-- **Pause / Resume**: `stop_context_watcher` / `start_context_watcher` Tauri commands; pause intent in `localStorage`
+- **Pause / Resume**: `stop_context_watcher` / `start_context_watcher` Tauri commands; pause intent stored in `localStorage["ctx_watcher_paused"]` (shared across all Tauri webviews)
 - **Clear**: calls `pruneOldContext()` to wipe all chunks
+
+### 8. Proactive Suggestion Chips — `src/pages/app/index.tsx`
+
+Shown **below** the pill-bar toolbar when the context watcher fires a `context-captured` event with a new `app_name`. Auto-dismiss after 30 seconds.
+
+**Content-type → chip map (`CONTEXT_SUGGESTIONS`):**
+
+| content_type | Chips |
+|---|---|
+| `code` | Explain this · Review this code · What does this do? |
+| `document` | Summarize this · Key points? · Explain this |
+| `meeting` | Summarize meeting · Action items? · Key decisions? |
+| `email` | Summarize this · Draft a reply · Key points? |
+| `chat` | Summarize conversation · Key points? |
+| `project_management` | What's the status? · Summarize this |
+| `design` | Describe this · Feedback on this |
+| `generic` | Help with this · Summarize this · Explain this |
+
+**Behaviour:**
+- Chips appear only when `!isExpanded` (pill bar collapsed / no response panel open)
+- Window height extends to **82 px** tier when chips are visible
+- Clicking a chip: dismisses chips + pre-fills TextInput via `externalText` / `setSttText`
+- ✕ button dismisses without selecting
+- Cleared automatically when AI starts generating (`isLoading → true`)
+- `prevAppNameRef` tracks last `app_name`; chips only shown on **app switch**, not repeated captures from the same app
+
+### 9. Auto System-Prompt Switching — `src/hooks/useCompletion.ts`
+
+Before every `sendMessage`, `resolveContextAwarePrompt(fallback)` silently tries to select a saved system prompt that matches the current screen context type.
+
+**`CONTENT_TYPE_KEYWORDS` map:**
+
+| content_type | Matched name keywords |
+|---|---|
+| `code` | code, coding, developer, programming, dev, technical, engineer |
+| `meeting` | meeting, note, standup, call, conference, minutes |
+| `email` | email, mail, inbox, gmail |
+| `document` | document, writing, writer, doc, essay, draft |
+| `project_management` | project, task, ticket, pm, linear, jira |
+| `design` | design, figma, ui, ux |
+| `chat` | chat, slack, discord, message |
+
+**Matching logic:** `getRecentContext(1, 5)` fetches the most recent chunk from the last 5 minutes → extracts `content_type` → looks for a saved system prompt (from SQLite) whose `name.toLowerCase()` contains any keyword for that type (case-insensitive substring match).
+
+**Fallback:** If no match, DB is empty, or any error — silently returns the user's currently active system prompt unchanged. Never throws.
+
+**Opt-in via naming convention:** Users name their saved system prompts descriptively (e.g. *"Coding assistant"*, *"Meeting notes helper"*, *"Email drafting"*) to enable auto-selection. No special config needed.
 
 ---
 
@@ -355,14 +404,13 @@ Embeddings only run on 20 pre-filtered candidates, keeping the extra latency to 
 | Use case | File | Status |
 |----------|------|--------|
 | AI prompt context injection | `ai-response.function.ts` | ✅ Active — injects up to 10 relevant chunks into every message |
+| Proactive context suggestion chips | `src/pages/app/index.tsx` | ✅ Active — chips shown below pill-bar toolbar when context switches to a new app/file; 30 s auto-dismiss; click pre-fills TextInput |
+| Auto system-prompt switching | `src/hooks/useCompletion.ts` | ✅ Active — `resolveContextAwarePrompt()` checks `content_type` of most recent chunk against saved system-prompt names (keyword match) before each request |
 
 ### High-Value Additions
 
 | Use case | Description | Implementation hint |
 |----------|-------------|---------------------|
-| **System prompt auto-switching** | Detect `content_type = "code"` → swap to coding assistant prompt; `"meeting"` → note-taking prompt | `getRecentContext(1, 5)` → check `content_type` → swap `systemPromptId` before request |
-| **Context indicator in pill bar** | Show active app/file being read in the pill-bar window | `listen("context-captured", e => setActiveContext(e.payload.app_name))` in the pill bar page |
-| **Proactive suggestions** | When context changes app/file, offer to help proactively | Compare `app_name` change in `context-captured` listener; show a suggestion chip |
 | **Smart conversation title** | Auto-name new conversations from active context | `getRecentContext(1, 2)` at conversation creation → use `window_title` |
 | **"What am I looking at?" slash command** | Describe the current screen in one shot | Already captured — just inject recent context into a dedicated summarise prompt |
 | **Meeting summaries** | Aggregate `meeting`-type chunks over last 60 min and summarise | Triggered manually or when user asks "summarise this meeting" |
@@ -465,6 +513,38 @@ api.rs → NVIDIA NIM / OpenRouter → streaming AI response
 
 ---
 
+## Bug Fixes
+
+### Pause/Resume State Desync (`sessionStorage` → `localStorage`)
+
+**Problem:** The pause intent flag `ctx_watcher_paused` was stored in `sessionStorage`. Tauri webviews (the main pill-bar window and the dashboard window) each have **separate** `sessionStorage` instances. Consequently:
+- Pausing from the Sidebar or Context Memory page wrote to the **dashboard window's** sessionStorage.
+- The 10-second watchdog in `main.tsx` read from the **main window's** sessionStorage — a completely different object.
+- Result: watchdog never saw the pause flag and restarted the watcher 10 seconds after every pause.
+- Additionally, closing and reopening the dashboard window cleared its sessionStorage, so the paused state was lost and the watcher auto-restarted on next open.
+
+**Fix:** All three locations changed from `sessionStorage` to `localStorage` (shared across all webviews on the same origin):
+
+| File | Change |
+|---|---|
+| `src/main.tsx` | Watchdog reads `localStorage.getItem("ctx_watcher_paused")` |
+| `src/components/Sidebar.tsx` | `handlePause`/`handleResume` write `localStorage.setItem/removeItem` |
+| `src/pages/context-memory/index.tsx` | Mount check + `handleTogglePause` read/write `localStorage` |
+
+### Context Memory Page Not Reflecting External Pause
+
+**Problem:** The Context Memory page read `get_watcher_status` only **once on mount**. If the watcher was paused from the Sidebar after mount, the page's `isPaused` / `isWatching` state was never updated — the header continued to show "Watching".
+
+**Fix:** Added a 2-second polling `setInterval` in `context-memory/index.tsx` that calls `get_watcher_status` and syncs `isPaused` / `isWatching`. UI now updates within ≤ 2 s of any external status change.
+
+### Active App Indicator Pushed Settings Icon Off-Screen
+
+**Problem:** The `activeApp` indicator (pulsing dot + truncated app name, e.g. `● msedgeweb...`) in the pill-bar toolbar's right section consumed variable width, pushing the Settings icon beyond the 600 px window boundary when a response was loading.
+
+**Fix:** Removed the `activeApp` state, `activeAppTimerRef`, its `setActiveApp` calls in the context-captured listener, and the JSX block from the toolbar. The `prevAppNameRef` used for suggestion chip logic was preserved. The right section now contains only `UsageTimer` + Settings icon.
+
+---
+
 ## File Reference
 
 | File | Role |
@@ -475,6 +555,8 @@ api.rs → NVIDIA NIM / OpenRouter → streaming AI response
 | `src-tauri/src/privacy_filter.rs` | App block-list, PII redaction (cards, SSN, API keys, OTPs) |
 | `src/lib/database/context-store.ts` | TypeScript read layer — `getRecentContext()`, `pruneOldContext()`, schema init |
 | `src/lib/functions/ai-response.function.ts` | BM25 RAG injection — `buildContextAwareSystemPrompt()` |
-| `src/pages/context-memory/index.tsx` | Context Memory dashboard — live feed, filter tabs, Google Docs nudge, pause/resume |
-| `src/components/Sidebar.tsx` | Watcher status poll, pause/resume toggle in sidebar |
-| `src/main.tsx` | App startup: `initContextStore()`, `pruneOldContext()` on startup + hourly `setInterval` |
+| `src/pages/context-memory/index.tsx` | Context Memory dashboard — live feed, filter tabs, Google Docs nudge, pause/resume, 2 s watcher-status poll |
+| `src/components/Sidebar.tsx` | Watcher status poll (3 s), pause/resume toggle; localStorage pause flag; conversation search + paginated load |
+| `src/hooks/useCompletion.ts` | `resolveContextAwarePrompt()` — auto system-prompt switching by content type before each request |
+| `src/main.tsx` | App startup: `initContextStore()`, `pruneOldContext()` on startup + hourly `setInterval`; watchdog reads `localStorage["ctx_watcher_paused"]` |
+| `src/pages/app/index.tsx` | Pill bar: `context-captured` listener → `prevAppNameRef` → suggestion chips; `CONTEXT_SUGGESTIONS` map; 30 s auto-dismiss |

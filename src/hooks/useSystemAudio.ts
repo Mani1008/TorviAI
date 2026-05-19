@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isTauri } from "@/lib/platform";
+import { STORAGE_KEYS } from "@/config/constants";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -34,13 +35,21 @@ interface SttTranscript {
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
+function loadVadConfig(): VadConfig {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.VAD_CONFIG);
+    if (raw) return { ...DEFAULT_VAD_CONFIG, ...JSON.parse(raw) };
+  } catch { /* ignore */ }
+  return { ...DEFAULT_VAD_CONFIG };
+}
+
 export function useSystemAudio(onTranscript: (text: string) => void) {
   // --- Capture state ---
   const [capturing, setCapturing] = useState(false);
   const [isProcessing] = useState(false); // kept for API compat
   const [lastTranscription, setLastTranscription] = useState("");
   const [error, setError] = useState("");
-  const [vadConfig, setVadConfig] = useState<VadConfig>(DEFAULT_VAD_CONFIG);
+  const [vadConfig, setVadConfig] = useState<VadConfig>(loadVadConfig);
 
   const unlistenRefs = useRef<UnlistenFn[]>([]);
   const assemblyAiActiveRef = useRef(false);
