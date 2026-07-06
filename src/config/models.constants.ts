@@ -1,9 +1,18 @@
 /**
- * Curated list of OpenRouter models available to users.
- * Grouped by use-case category.
- * Model IDs match OpenRouter's routing format.
- * API key is managed server-side — users only pick a model.
+ * Curated model catalog for Torvi.
+ *
+ * **Primary provider:** OpenRouter (`OPENROUTER_API_KEY` in .env) — default for all models
+ * unless `providerTag: "nvidia"`.
+ *
+ * **Optional testing:** NVIDIA NIM models (`NVIDIA_API_KEY`) — listed at the end.
+ *
+ * API keys are server-side only (Rust proxy); users pick a model or role.
  */
+export {
+  PRIMARY_AI_PROVIDER,
+  getProviderForModel,
+  isNvidiaNimModel,
+} from "./ai-provider.constants";
 
 export interface ModelOption {
   id: string;
@@ -33,78 +42,13 @@ export const MODEL_CATEGORIES: Record<ModelCategory, string> = {
   vision: "Vision & Images",
 };
 
-export const OPENROUTER_MODELS: ModelOption[] = [
-  // ─── NVIDIA NIM ─────────────────────────────────────────────────────────
-  // These models are used with the "NVIDIA NIM" provider (not OpenRouter).
-  // Requires a separate NVIDIA API key from https://build.nvidia.com
-  {
-    id: "meta/llama-3.2-11b-vision-instruct",
-    name: "Llama 3.2 11B Vision (NVIDIA)",
-    description: "Meta's vision-language model via NVIDIA NIM. Analyzes images and screenshots.",
-    category: "vision",
-    contextWindow: 128000,
-    supportsVision: true,
-    isFree: true,
-    recommended: true,
-    providerTag: "nvidia",
-  },
-  {
-    id: "meta/llama-3.2-90b-vision-instruct",
-    name: "Llama 3.2 90B Vision (NVIDIA)",
-    description: "Meta's large vision-language model via NVIDIA NIM. Best image understanding.",
-    category: "vision",
-    contextWindow: 128000,
-    supportsVision: true,
-    isFree: false,
-    providerTag: "nvidia",
-  },
-  {
-    id: "google/gemma-4-31b-it",
-    name: "Gemma 4 31B (NVIDIA)",
-    description: "Google's Gemma 4 with extended thinking via NVIDIA NIM. 128K context.",
-    category: "reasoning",
-    contextWindow: 131072,
-    supportsVision: false,
-    isFree: false,
-    recommended: true,
-    providerTag: "nvidia",
-  },
-  {
-    id: "meta/llama-4-scout-17b-16e-instruct",
-    name: "Llama 4 Scout 17B (NVIDIA)",
-    description: "Meta Llama 4 Scout via NVIDIA NIM. Fast and capable.",
-    category: "fast",
-    contextWindow: 131072,
-    supportsVision: false,
-    isFree: false,
-    providerTag: "nvidia",
-  },
-  {
-    id: "nvidia/llama-3.3-nemotron-super-49b-v1",
-    name: "Nemotron Super 49B (NVIDIA)",
-    description: "NVIDIA's Nemotron 49B with extended thinking. Best for reasoning tasks.",
-    category: "reasoning",
-    contextWindow: 131072,
-    supportsVision: false,
-    isFree: false,
-    providerTag: "nvidia",
-  },
-  {
-    id: "mistralai/mistral-small-3.1-24b-instruct",
-    name: "Mistral Small 3.1 24B (NVIDIA)",
-    description: "Mistral Small via NVIDIA NIM. Balanced speed and quality.",
-    category: "general",
-    contextWindow: 131072,
-    supportsVision: false,
-    isFree: false,
-    providerTag: "nvidia",
-  },
-
-  // ─── Free / Test ────────────────────────────────────────────────────────
+/** OpenRouter-hosted models (primary — requires OPENROUTER_API_KEY). */
+const OPENROUTER_HOSTED_MODELS: ModelOption[] = [
+  // ─── Free tier (OpenRouter) ─────────────────────────────────────────────
   {
     id: "nvidia/nemotron-3-super-120b-a12b:free",
     name: "Nemotron Super 120B (Free)",
-    description: "NVIDIA's largest free model. Great for testing.",
+    description: "Default free model on OpenRouter.",
     category: "general",
     contextWindow: 128000,
     supportsVision: false,
@@ -112,13 +56,13 @@ export const OPENROUTER_MODELS: ModelOption[] = [
     recommended: true,
   },
   {
-    id: "meta-llama/llama-4-maverick:free",
-    name: "Llama 4 Maverick (Free)",
-    description: "Meta's latest Llama 4 multimodal model. Free tier.",
+    id: "meta-llama/llama-4-maverick",
+    name: "Llama 4 Maverick",
+    description: "Meta Llama 4 multimodal (paid on OpenRouter).",
     category: "vision",
     contextWindow: 1000000,
     supportsVision: true,
-    isFree: true,
+    isFree: false,
   },
   {
     id: "google/gemini-2.0-flash-exp:free",
@@ -267,12 +211,78 @@ export const OPENROUTER_MODELS: ModelOption[] = [
   },
 ];
 
-// Default model used when no role has been selected yet.
-// Must be present in ALLOWED_MODELS in src-tauri/src/api.rs.
-// Using a free OpenRouter model so the app works out-of-the-box with only OPENROUTER_API_KEY.
-// NOTE: Prefer llama-4-maverick:free over gemini-2.0-flash-exp:free — the latter is an
-// experimental/deprecated model with heavy free-tier queuing (can take 2-5 min TTFT).
-export const DEFAULT_MODEL_ID = "meta-llama/llama-4-maverick:free";
+/** NVIDIA NIM direct API (optional — requires NVIDIA_API_KEY, for testing). */
+export const NVIDIA_NIM_MODELS: ModelOption[] = [
+  {
+    id: "meta/llama-3.2-11b-vision-instruct",
+    name: "Llama 3.2 11B Vision (NVIDIA NIM)",
+    description: "Vision model via NVIDIA NIM — testing only.",
+    category: "vision",
+    contextWindow: 128000,
+    supportsVision: true,
+    isFree: true,
+    providerTag: "nvidia",
+  },
+  {
+    id: "meta/llama-3.2-90b-vision-instruct",
+    name: "Llama 3.2 90B Vision (NVIDIA NIM)",
+    description: "Large vision model via NVIDIA NIM — testing only.",
+    category: "vision",
+    contextWindow: 128000,
+    supportsVision: true,
+    isFree: false,
+    providerTag: "nvidia",
+  },
+  {
+    id: "google/gemma-4-31b-it",
+    name: "Gemma 4 31B (NVIDIA NIM)",
+    description: "Gemma 4 via NVIDIA NIM — testing only.",
+    category: "reasoning",
+    contextWindow: 131072,
+    supportsVision: false,
+    isFree: false,
+    providerTag: "nvidia",
+  },
+  {
+    id: "meta/llama-4-scout-17b-16e-instruct",
+    name: "Llama 4 Scout 17B (NVIDIA NIM)",
+    description: "Llama 4 Scout via NVIDIA NIM — testing only.",
+    category: "fast",
+    contextWindow: 131072,
+    supportsVision: false,
+    isFree: false,
+    providerTag: "nvidia",
+  },
+  {
+    id: "nvidia/llama-3.3-nemotron-super-49b-v1",
+    name: "Nemotron Super 49B (NVIDIA NIM)",
+    description: "Nemotron 49B via NVIDIA NIM — testing only.",
+    category: "reasoning",
+    contextWindow: 131072,
+    supportsVision: false,
+    isFree: false,
+    providerTag: "nvidia",
+  },
+  {
+    id: "mistralai/mistral-small-3.1-24b-instruct",
+    name: "Mistral Small 3.1 24B (NVIDIA NIM)",
+    description: "Mistral Small via NVIDIA NIM — testing only.",
+    category: "general",
+    contextWindow: 131072,
+    supportsVision: false,
+    isFree: false,
+    providerTag: "nvidia",
+  },
+];
+
+/** Full catalog: OpenRouter first, NVIDIA NIM testing models last. */
+export const OPENROUTER_MODELS: ModelOption[] = [
+  ...OPENROUTER_HOSTED_MODELS,
+  ...NVIDIA_NIM_MODELS,
+];
+
+// Default model when none selected — must exist in ALLOWED_MODELS (api.rs).
+export const DEFAULT_MODEL_ID = "nvidia/nemotron-3-super-120b-a12b:free";
 
 export function getModelById(id: string): ModelOption | undefined {
   return OPENROUTER_MODELS.find((m) => m.id === id);

@@ -15,7 +15,7 @@ import { loadUserProfile } from "@/lib/storage/auth";
 import { STORAGE_KEYS, DEFAULT_SCREENSHOT_CONFIG } from "@/config/constants";
 import type { ScreenshotConfig } from "@/types/settings";
 import { saveScreenshot } from "@/lib/database/screenshots";
-import { syncScreenshot } from "@/lib/appwrite/sync-screenshots";
+import { syncScreenshot } from "@/lib/backend";
 import { DEFAULT_SHORTCUTS } from "@/config/shortcuts";
 import { loadShortcuts } from "@/lib/storage";
 
@@ -390,6 +390,33 @@ export default function App() {
     return () => { u1?.(); u2?.(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Listen for Ctrl+Shift+A global shortcut from Rust → toggle system audio capture
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("toggle-system-audio", () => handleListenToggle()).then((fn) => { unlisten = fn; });
+    });
+    return () => { unlisten?.(); };
+  }, [handleListenToggle]);
+
+  // Listen for Ctrl+Shift+M global shortcut from Rust → toggle microphone
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("toggle-microphone", () => handleMicToggle()).then((fn) => { unlisten = fn; });
+    });
+    return () => { unlisten?.(); };
+  }, [handleMicToggle]);
+
+  // Listen for Ctrl+Shift+S global shortcut from Rust → screenshot analysis
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("trigger-screenshot", () => handleScreenAnalysis()).then((fn) => { unlisten = fn; });
+    });
+    return () => { unlisten?.(); };
+  }, [handleScreenAnalysis]);
 
   // Listen for context-captured events from the context watcher.
   // Shows a subtle "reading: <app>" indicator and proactive suggestion chips

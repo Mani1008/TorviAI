@@ -7,7 +7,7 @@ import {
   updateSystemPrompt,
   deleteSystemPrompt,
 } from "@/lib/database/system-prompts";
-import { syncSystemPrompt, deleteRemoteSystemPrompt } from "@/lib/appwrite/sync-prompts";
+import { syncSystemPromptRemote, deleteSystemPrompt as deleteRemoteSystemPrompt } from "@/lib/backend";
 import { loadUserProfile } from "@/lib/storage/auth";
 import type { SystemPrompt } from "@/types/system-prompts";
 import { Button } from "@/components/ui/button";
@@ -141,7 +141,7 @@ export default function SystemPrompts() {
           (p) =>
             p.name === form.name.trim() && p.prompt === form.prompt.trim()
         );
-        if (saved) syncSystemPrompt(userId, saved).catch(() => {});
+        if (saved) syncSystemPromptRemote(userId, saved).catch(() => {});
       }
       await reload();
       closeDialog();

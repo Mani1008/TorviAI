@@ -55,6 +55,8 @@ export default function ContextMemory() {
   const unlistenRef                   = useRef<(() => void) | null>(null);
   // Shown when user is on Google Docs without screen reader mode enabled.
   const [showDocsNudge, setShowDocsNudge] = useState(false);
+  // Shown when Cursor/VS Code editor content is inaccessible without a11y mode.
+  const [showEditorNudge, setShowEditorNudge] = useState(false);
 
   // ── Key for user's explicit pause intent (survives HMR re-renders) ─────────
   const PAUSE_KEY = "ctx_watcher_paused";
@@ -162,12 +164,21 @@ export default function ContextMemory() {
       else { unlistenDocsNudge = fn; }
     }).catch(console.error);
 
+    let unlistenEditorNudge: (() => void) | null = null;
+    listen<string>("editor-needs-accessibility", () => {
+      if (!cancelled) setShowEditorNudge(true);
+    }).then((fn) => {
+      if (cancelled) { fn(); }
+      else { unlistenEditorNudge = fn; }
+    }).catch(console.error);
+
     return () => {
       cancelled = true;
       unlistenRef.current?.();
       unlistenRef.current = null;
       unlistenSaved?.();
       unlistenDocsNudge?.();
+      unlistenEditorNudge?.();
     };
   }, []);
 
@@ -320,6 +331,13 @@ export default function ContextMemory() {
                 automatically excluded. Captured text is injected into the AI when you ask a question.
               </p>
               <p className="text-muted-foreground text-xs leading-relaxed mt-1">
+                <strong className="text-yellow-400">⚠️ Cursor / VS Code tip:</strong> For full file content (not just visible lines),
+                enable screen reader accessibility mode with{" "}
+                <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Shift + Alt + F1</kbd>
+                {" "}in the editor, or run the command{" "}
+                <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Toggle Screen Reader Accessibility Mode</kbd>.
+              </p>
+              <p className="text-muted-foreground text-xs leading-relaxed mt-1">
                 <strong className="text-yellow-400">⚠️ Google Docs tip:</strong> Enable screen reader support in Docs for richer capture.
                 Open any Google Doc → <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Tools</kbd> →{" "}
                 <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">Accessibility</kbd> → Turn on screen reader support.
@@ -353,6 +371,39 @@ export default function ContextMemory() {
               </div>
               <button
                 onClick={() => setShowDocsNudge(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Cursor / VS Code accessibility nudge ── */}
+        {showEditorNudge && (
+          <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
+            <div className="flex items-start gap-3">
+              <span className="text-yellow-400 mt-0.5 shrink-0 text-base">⚠️</span>
+              <div className="flex-1 space-y-1">
+                <p className="font-medium text-yellow-300">Cursor / VS Code — editor content is limited</p>
+                <p className="text-muted-foreground text-xs leading-relaxed">
+                  The code editor hides full file text from accessibility APIs unless screen reader mode is on.
+                  Torvi can only see visible lines or UI labels without it — which is why you may see headings instead of file content.
+                </p>
+                <p className="text-xs mt-2">
+                  Press{" "}
+                  <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] border border-border">Shift</kbd>
+                  {" + "}
+                  <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] border border-border">Alt</kbd>
+                  {" + "}
+                  <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] border border-border">F1</kbd>
+                  {" in Cursor/VS Code, or open the Command Palette and run "}
+                  <strong className="text-foreground">Toggle Screen Reader Accessibility Mode</strong>.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowEditorNudge(false)}
                 className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
                 aria-label="Dismiss"
               >

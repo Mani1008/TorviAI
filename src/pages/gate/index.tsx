@@ -6,12 +6,12 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { APP_URL, API_BASE_URL } from "@/config/constants";
 import { saveAuthToken, loadAuthToken, verifyToken, saveUserProfile, loadUserProfile, clearUserProfile } from "@/lib/storage/auth";
 
-// Lazy-import Appwrite modules to prevent gate crash if appwrite isn't configured
-type AppwriteModule = Awaited<typeof import("@/lib/appwrite")>;
-let _appwrite: AppwriteModule | null = null;
-async function getAppwrite(): Promise<AppwriteModule> {
-  if (!_appwrite) _appwrite = await import("@/lib/appwrite");
-  return _appwrite;
+// Lazy-import backend module to prevent gate crash if cloud backend isn't configured
+type BackendModule = Awaited<typeof import("@/lib/backend")>;
+let _backend: BackendModule | null = null;
+async function getBackend(): Promise<BackendModule> {
+  if (!_backend) _backend = await import("@/lib/backend");
+  return _backend;
 }
 
 interface CallbackPayload {
@@ -20,6 +20,9 @@ interface CallbackPayload {
   secret: string;
   provider: string;
   state: string;
+  code: string;
+  access_token: string;
+  refresh_token: string;
 }
 
 // Module-level timestamp used to debounce OAuth initiations (2-second cooldown).
@@ -28,9 +31,9 @@ let _lastOAuthClick = 0;
 async function unlockAndSync() {
   try {
     await invoke("unlock_app");
-    // Run background Appwrite sync (non-blocking)
-    const aw = await getAppwrite();
-    aw.runStartupSync().catch((e: unknown) => console.warn("[Gate] Startup sync error:", e));
+    // Run background cloud sync (non-blocking)
+    const backend = await getBackend();
+    backend.runStartupSync().catch((e: unknown) => console.warn("[Gate] Startup sync error:", e));
   } catch (e) {
     console.error("[Gate] unlock_app failed:", e);
   }
@@ -91,11 +94,11 @@ export default function Gate() {
         ;(async () => {
           await new Promise<void>((r) => setTimeout(r, 1500));
           try {
-            const aw = await getAppwrite();
-            if (!aw.isAppwriteConfigured()) return;
-            const awUser = await aw.getActiveSession();
-            if (awUser) {
-              const profile = await aw.resolveUserProfile(awUser);
+            const backend = await getBackend();
+            if (!backend.isBackendConfigured()) return;
+            const sessionUser = await backend.getActiveSession();
+            if (sessionUser) {
+              const profile = await backend.resolveUserProfile(sessionUser);
               saveUserProfile(profile);
             } else {
               // Expired — clear silently so next startup forces re-auth.
@@ -113,11 +116,11 @@ export default function Gate() {
       // ── No cached profile: full verification path ──
       try {
         // Try Appwrite session first — always re-fetches from server, never uses cached profile
-        const aw = await getAppwrite();
-        if (aw.isAppwriteConfigured()) {
-          const awUser = await aw.getActiveSession();
-          if (awUser) {
-            const profile = await aw.resolveUserProfile(awUser);
+        const backend = await getBackend();
+        if (backend.isBackendConfigured()) {
+          const sessionUser = await backend.getActiveSession();
+          if (sessionUser) {
+            const profile = await backend.resolveUserProfile(sessionUser);
             saveUserProfile(profile);
             setStatus("done");
             await unlockAndSync();
@@ -153,7 +156,8 @@ export default function Gate() {
     let unlisten: (() => void) | undefined;
 
     listen<CallbackPayload>("oauth-callback-received", async (event) => {
-      const { token, user_id, secret, state } = event.payload;
+      const { token, user_id, secret, state, provider, code, access_token, refresh_token } =
+        event.payload;
 
       // Validate CSRF state nonce before processing
       const expectedNonce = sessionStorage.getItem("oauth_state_nonce");
@@ -166,11 +170,32 @@ export default function Gate() {
       }
 
       try {
+        const backend = await getBackend();
+
+        // ── Supabase OAuth callback ──
+        if (access_token && refresh_token) {
+          const sessionUser = await backend.setSessionFromTokens(access_token, refresh_token);
+          const profile = await backend.resolveUserProfile(sessionUser);
+          saveUserProfile(profile);
+          setStatus("done");
+          await unlockAndSync();
+          return;
+        }
+
+        const oauthCode = code || (provider === "supabase" ? token : "");
+        if (oauthCode) {
+          const sessionUser = await backend.exchangeOAuthCode(oauthCode);
+          const profile = await backend.resolveUserProfile(sessionUser);
+          saveUserProfile(profile);
+          setStatus("done");
+          await unlockAndSync();
+          return;
+        }
+
         // ── Appwrite OAuth callback ──
         if (user_id && secret) {
-          const aw = await getAppwrite();
-          const awUser = await aw.createSessionFromOAuth(user_id, secret);
-          const profile = await aw.resolveUserProfile(awUser);
+          const sessionUser = await backend.createSessionFromOAuth(user_id, secret);
+          const profile = await backend.resolveUserProfile(sessionUser);
           saveUserProfile(profile);
           setStatus("done");
           await unlockAndSync();
@@ -216,10 +241,10 @@ export default function Gate() {
 
       const port = await invoke<number>("start_oauth_callback_server");
 
-      const aw = await getAppwrite();
-      if (aw.isAppwriteConfigured()) {
-        // Open Appwrite's Google OAuth URL — nonce is embedded in success redirect URL
-        const oauthUrl = aw.getOAuthUrl(port, stateNonce);
+      const backend = await getBackend();
+      if (backend.isBackendConfigured()) {
+        // Open Google OAuth URL — nonce is embedded in success redirect URL
+        const oauthUrl = await backend.getOAuthUrl(port, stateNonce);
         await openUrl(oauthUrl);
       } else {
         // Legacy: open landing page login with state nonce

@@ -5,6 +5,7 @@ import {
   OPENROUTER_MODELS,
 } from "@/config/models.constants";
 import {
+  INTERVIEW_ROLES,
   type InterviewRoleId,
   type SpecialisationId,
   DEFAULT_ROLE_ID,
@@ -17,6 +18,11 @@ const SPEC_KEY = "torvi_interview_spec";
 
 /** All model IDs known to this build (duplicates ALLOWED_MODELS in api.rs). */
 const KNOWN_MODEL_IDS = new Set(OPENROUTER_MODELS.map((m) => m.id));
+
+/** Models removed or delisted on OpenRouter — migrate stored selection away. */
+const DEPRECATED_MODEL_IDS = new Set(["meta-llama/llama-4-maverick:free"]);
+
+const VALID_ROLE_IDS = new Set(INTERVIEW_ROLES.map((r) => r.id));
 
 // ─── Raw model ID (internal, used by AI request function) ────────────────────
 
@@ -31,8 +37,10 @@ export function saveSelectedModel(modelId: string): void {
  */
 export function loadSelectedModel(): string {
   const stored = safeLocalStorage.getItem(STORAGE_KEYS.SELECTED_MODEL);
-  if (stored && KNOWN_MODEL_IDS.has(stored)) return stored;
-  // Stale / unknown — reset to default and persist
+  if (stored && KNOWN_MODEL_IDS.has(stored) && !DEPRECATED_MODEL_IDS.has(stored)) {
+    return stored;
+  }
+  // Stale / unknown / delisted — reset to default and persist
   safeLocalStorage.setItem(STORAGE_KEYS.SELECTED_MODEL, DEFAULT_MODEL_ID);
   return DEFAULT_MODEL_ID;
 }
@@ -44,7 +52,9 @@ export function saveInterviewRole(roleId: InterviewRoleId): void {
 }
 
 export function loadInterviewRole(): InterviewRoleId {
-  return (safeLocalStorage.getItem(ROLE_KEY) as InterviewRoleId | null) ?? DEFAULT_ROLE_ID;
+  const stored = safeLocalStorage.getItem(ROLE_KEY) as InterviewRoleId | null;
+  if (stored && VALID_ROLE_IDS.has(stored)) return stored;
+  return DEFAULT_ROLE_ID;
 }
 
 export function saveInterviewSpec(specId: SpecialisationId): void {

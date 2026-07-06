@@ -1,7 +1,7 @@
 import { safeLocalStorage } from "./helper";
 import { STORAGE_KEYS } from "@/config/constants";
 import type { ResponseSettings } from "@/types/settings";
-import { pushSettings } from "@/lib/appwrite";
+import { pushUserSettings } from "@/lib/backend";
 import { loadUserProfile } from "./auth";
 
 const DEFAULT_RESPONSE_SETTINGS: ResponseSettings = {
@@ -17,7 +17,7 @@ export function saveResponseSettings(settings: ResponseSettings): void {
   // Async sync to Appwrite
   const profile = loadUserProfile();
   if (profile?.id) {
-    pushSettings(profile.id).catch(console.warn);
+    pushUserSettings(profile.id).catch(console.warn);
   }
 }
 

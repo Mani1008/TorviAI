@@ -240,6 +240,17 @@ impl ContextDb {
 
         saved
     }
+
+    /// Delete every row from `context_chunks`.
+    /// Called by the "Delete Data" flow — stops the watcher before this runs.
+    pub async fn clear_all(&self) -> Result<(), String> {
+        sqlx::query("DELETE FROM context_chunks")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("DELETE context_chunks: {e}"))?;
+        log::info!("[ContextDB] All context chunks deleted.");
+        Ok(())
+    }
 }
 
 // ─── Chunking helper ──────────────────────────────────────────────────────────

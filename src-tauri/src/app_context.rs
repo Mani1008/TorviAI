@@ -95,6 +95,24 @@ pub fn get_watcher_status(state: tauri::State<'_, AppContextState>) -> &'static 
     }
 }
 
+/// Stop the watcher and permanently delete all captured context chunks.
+/// Called when the user clicks "Delete Data" in the Context Awareness panel.
+#[tauri::command]
+pub async fn clear_context_data(
+    app: AppHandle,
+    state: tauri::State<'_, AppContextState>,
+) -> Result<(), String> {
+    // Stop the watcher so it doesn't write new rows while we delete.
+    state.running.store(false, Ordering::SeqCst);
+
+    // Open a fresh pool and wipe the table.
+    let db = crate::context_db::ContextDb::open(&app).await?;
+    db.clear_all().await?;
+
+    log::info!("[ContextWatcher] Context data deleted by user request.");
+    Ok(())
+}
+
 // ─── Watcher loop ─────────────────────────────────────────────────────────────
 
 /// Platform-specific watcher loop.
@@ -226,6 +244,34 @@ async fn run_watcher_loop(running: Arc<AtomicBool>, app: AppHandle) {
                 // Emit a typed event so every open Torvi window can show
                 // a contextual prompt to enable screen reader mode.
                 let _ = app.emit("google-docs-needs-screen-reader", url_str.to_string());
+                continue;
+            }
+        }
+
+        // VS Code / Cursor: Monaco hides full document text unless screen-reader
+        // accessibility mode is enabled (Shift+Alt+F1).  Without it we may only
+        // get viewport lines or UI chrome — skip near-empty captures and nudge.
+        if is_code_editor_app(&ctx.app_name) {
+            let lower = text.to_lowercase();
+            if lower.contains("editor is not accessible")
+                || lower.contains("screen reader optimized mode")
+                || lower.contains("use shift+alt+f1")
+            {
+                let _ = app.emit("editor-needs-accessibility", ctx.app_name.clone());
+                continue;
+            }
+
+            let meaningful_chars = text
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .count();
+            if meaningful_chars < 120 {
+                log::debug!(
+                    "[ContextWatcher] Code editor detected but content too thin \
+                     ({} alphanumeric chars) — emitting accessibility nudge.",
+                    meaningful_chars
+                );
+                let _ = app.emit("editor-needs-accessibility", ctx.app_name.clone());
                 continue;
             }
         }
@@ -552,6 +598,10 @@ const UI_NOISE_LINES: &[&str] = &[
     "Align & indent",
     "Line & paragraph spacing",
     "FileEditViewInsertFormatToolsExtensionsHelp",
+    // ── Cursor / VS Code update prompts ───────────────────────────────────────
+    "New update available",
+    "Later",
+    "Install Now",
 ];
 
 /// Clean up raw UIAutomation-captured text before storing in the context DB.
@@ -793,6 +843,24 @@ fn parse_window_title(app_name: &str, title: &str) -> String {
 
 // ─── Context classifier ───────────────────────────────────────────────────────
 
+/// True for VS Code, Cursor, and common JetBrains/Neovim-style code editors.
+fn is_code_editor_app(app_name: &str) -> bool {
+    let app = app_name.to_lowercase();
+    app == "cursor"
+        || app == "code"
+        || app.contains("vscode")
+        || app.contains("rider")
+        || app.contains("idea")
+        || app.contains("pycharm")
+        || app.contains("webstorm")
+        || app.contains("clion")
+        || app.contains("goland")
+        || app.contains("studio")
+        || app.contains("sublime")
+        || app.contains("vim")
+        || app.contains("nvim")
+        || app.contains("emacs")
+}
 
 /// Classify the content type based on app name, parsed window title, and optional URL.
 fn classify_context(app_name: &str, title: &str, url: Option<&str>) -> &'static str {

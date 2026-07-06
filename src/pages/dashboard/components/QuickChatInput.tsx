@@ -64,8 +64,8 @@ export function QuickChatInput({ recentChunks }: Props) {
         <div
           className="pointer-events-none absolute -inset-[1px] rounded-2xl opacity-0 transition-opacity duration-300 group-focus-within:opacity-100"
           style={{
-            background:
-              "linear-gradient(135deg, oklch(0.55 0.20 264 / 0.7) 0%, oklch(0.50 0.18 290 / 0.5) 100%)",
+            // background:
+            //   "linear-gradient(135deg, oklch(0.55 0.20 264 / 0.7) 0%, oklch(0.50 0.18 290 / 0.5) 100%)",
             borderRadius: "inherit",
           }}
         />

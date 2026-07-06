@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Outlet } from "react-router";
 import { Sidebar } from "@/components/Sidebar";
 import { Onboarding, isOnboarded } from "@/components/Onboarding";
+import { Updater } from "@/components/Updater";
 import { isTauri } from "@/lib/platform";
 import { loadUserProfile } from "@/lib/storage/auth";
 import { X, Minus, Maximize2, Minimize2 } from "lucide-react";
@@ -100,6 +101,9 @@ export function DashboardLayout() {
     <div className="flex flex-col h-screen overflow-hidden bg-dashboard-bg">
       {/* Windows titlebar — full width, drag region left, controls right */}
       <TitleBar />
+
+      {/* Silent update check — shows a banner if a new version is available */}
+      <Updater />
 
       {/* Sidebar + main content below the titlebar */}
       <div className="flex flex-1 overflow-hidden">

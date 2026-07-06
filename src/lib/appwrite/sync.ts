@@ -1,4 +1,4 @@
-import { client, isAppwriteConfigured } from "./client";
+import { isAppwriteConfigured } from "./client";
 import { getActiveSession } from "./auth";
 import { fetchRemoteUsage, fetchRemotePlan } from "./sync-profiles";
 import { fetchRemoteConversations, syncConversation } from "./sync-conversations";
@@ -10,6 +10,7 @@ import { STORAGE_KEYS, DEFAULT_SYSTEM_PROMPT } from "@/config/constants";
 import { loadResponseSettings } from "@/lib/storage/response-settings.storage";
 import { saveSelectedModel } from "@/lib/storage/ai-providers";
 import { safeLocalStorage } from "@/lib/storage/helper";
+import { OPENROUTER_MODELS } from "@/config/models.constants";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,14 +69,6 @@ const SYNC_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
  * Pulls remote data to reconcile with local, then pushes local data.
  */
 export async function runStartupSync(): Promise<void> {
-  // Ping Appwrite to verify backend connectivity on every app launch.
-  // Fires regardless of auth state — logs success/failure for diagnostics.
-  client.ping().then(() => {
-    console.log("[Appwrite] Ping OK — backend reachable at", import.meta.env.VITE_APPWRITE_ENDPOINT);
-  }).catch((e: unknown) => {
-    console.warn("[Appwrite] Ping failed — check endpoint/project config:", e);
-  });
-
   if (!isAppwriteConfigured()) return;
 
   const user = await getActiveSession();
@@ -163,8 +156,9 @@ export async function runStartupSync(): Promise<void> {
           language: remote.language || localResp.language,
         }));
       }
-      // Apply selected model if non-empty
-      if (remote.selectedModel) {
+      // Apply known model IDs only — ignore legacy values like "openrouter/auto"
+      const knownModels = new Set(OPENROUTER_MODELS.map((m) => m.id));
+      if (remote.selectedModel && knownModels.has(remote.selectedModel)) {
         saveSelectedModel(remote.selectedModel);
       }
       // Apply system prompt if non-empty and not the default

@@ -8,7 +8,7 @@ import { loadUsageStats } from "@/lib/storage/usage-stats";
 import type { UserProfile, UsageStats } from "@/types/settings";
 import type { ChatConversation } from "@/types/completion";
 import type { ContextChunk } from "@/lib/database/context-store";
-import { logout } from "@/lib/appwrite";
+import { logout } from "@/lib/backend";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "@/lib/platform";

@@ -28,7 +28,15 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; font-src 'self' data: asset: http://asset.localhost; connect-src 'self' https://cloud.appwrite.io https://sgp.cloud.appwrite.io ipc: http://ipc.localhost; media-src 'self' blob:; object-src 'none'; base-uri 'self'"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; font-src 'self' data: asset: http://asset.localhost; connect-src 'self' https://cloud.appwrite.io https://*.cloud.appwrite.io https://*.supabase.co ipc: http://ipc.localhost; media-src 'self' blob:; object-src 'none'; base-uri 'self'"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://torvi.com/api/update/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "pubkey": ""
     }
   },
   "bundle": {

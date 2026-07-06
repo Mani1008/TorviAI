@@ -53,7 +53,7 @@ const ALLOWED_MODELS: &[&str] = &[
 
     // ── OpenRouter — Free tier (no billing needed, `:free` suffix) ──────────
     "google/gemini-2.0-flash-exp:free",
-    "meta-llama/llama-4-maverick:free",
+    "meta-llama/llama-4-maverick",
     "deepseek/deepseek-r1:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
 
@@ -130,7 +130,12 @@ struct AiStreamError {
     error: String,
 }
 
-/// Models routed to NVIDIA NIM instead of OpenRouter.
+/// Default when frontend sends no model and OPENROUTER_MODEL env is unset.
+/// Must match DEFAULT_MODEL_ID in src/config/models.constants.ts.
+const DEFAULT_OPENROUTER_MODEL: &str = "nvidia/nemotron-3-super-120b-a12b:free";
+
+/// Models routed to NVIDIA NIM (optional testing). All other models use OpenRouter (primary).
+/// Keep in sync with NVIDIA_NIM_MODEL_IDS in src/config/ai-provider.constants.ts.
 const NVIDIA_NIM_MODELS: &[&str] = &[
     "meta/llama-3.2-11b-vision-instruct",
     "meta/llama-3.2-90b-vision-instruct",
@@ -183,7 +188,7 @@ pub async fn stream_ai_request(
         }
     }
     let default_model = env::var("OPENROUTER_MODEL")
-        .unwrap_or_else(|_| "meta/llama-4-scout-17b-16e-instruct".to_string());
+        .unwrap_or_else(|_| DEFAULT_OPENROUTER_MODEL.to_string());
     let model = model_id.filter(|s| !s.is_empty()).unwrap_or(default_model);
 
     // AI-04: Validate model against allowlist to prevent premium-model substitution
@@ -235,11 +240,22 @@ pub async fn stream_ai_request(
         full_messages.extend(messages.iter().cloned());
     }
 
-    // Route to the correct provider and load API key from env (never from frontend)
+    // Primary: OpenRouter. Optional: NVIDIA NIM for explicit testing models only.
     let is_nvidia = NVIDIA_NIM_MODELS.contains(&model.as_str());
+    log::info!(
+        "[API] model={} provider={}",
+        model,
+        if is_nvidia { "nvidia-nim" } else { "openrouter" }
+    );
+
     let (api_key, url, max_tokens, extra_headers): (String, &str, usize, Vec<(&str, &str)>) =
         if is_nvidia {
-            let key = env_var("NVIDIA_API_KEY")?;
+            let key = env::var("NVIDIA_API_KEY").map_err(|_| {
+                "NVIDIA NIM model selected but NVIDIA_API_KEY is missing in .env (optional — use an OpenRouter model instead).".to_string()
+            })?;
+            if key.is_empty() {
+                return Err("NVIDIA_API_KEY is empty in .env.".to_string());
+            }
             (
                 key,
                 "https://integrate.api.nvidia.com/v1/chat/completions",
@@ -247,7 +263,12 @@ pub async fn stream_ai_request(
                 vec![("Accept", "text/event-stream")],
             )
         } else {
-            let key = env_var("OPENROUTER_API_KEY")?;
+            let key = env::var("OPENROUTER_API_KEY").map_err(|_| {
+                "OPENROUTER_API_KEY is missing in .env — required for chat.".to_string()
+            })?;
+            if key.is_empty() {
+                return Err("OPENROUTER_API_KEY is empty in .env.".to_string());
+            }
             (
                 key,
                 "https://openrouter.ai/api/v1/chat/completions",
@@ -295,12 +316,33 @@ pub async fn stream_ai_request(
 
     if !response.status().is_success() {
         let status = response.status().as_u16();
-        let user_msg = match status {
-            401 | 403 => "Authentication error. Please contact support.",
-            429 => "Rate limited. Please wait a moment and try again.",
-            500..=599 => "AI provider server error. Try again later.",
-            _ => "Request failed. Please try again.",
+        let body = response.text().await.unwrap_or_default();
+        let body_lower = body.to_lowercase();
+
+        // Log provider response in dev — never emit raw body to the WebView
+        log::warn!(
+            "[API] Provider HTTP {} for model {} — body: {}",
+            status,
+            model,
+            &body[..body.len().min(300)]
+        );
+
+        let user_msg = if status == 401 {
+            "AI provider rejected the API key. Check OPENROUTER_API_KEY or NVIDIA_API_KEY in .env."
+        } else if status == 404 || body_lower.contains("unavailable") {
+            "This model is no longer available on OpenRouter. Open Settings and save to reset the default model."
+        } else if status == 402 || body_lower.contains("insufficient") || body_lower.contains("credit") {
+            "OpenRouter credits required. Add credits at openrouter.ai/settings/credits."
+        } else if status == 403 {
+            "AI provider denied access to this model. Try a different model in Settings."
+        } else if status == 429 {
+            "Rate limited. Please wait a moment and try again."
+        } else if (500..=599).contains(&status) {
+            "AI provider server error. Try again later."
+        } else {
+            "AI request failed. Please try again."
         };
+
         let _ = app.emit(
             &format!("ai-error-{}", request_id),
             AiStreamError {

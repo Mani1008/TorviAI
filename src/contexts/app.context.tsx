@@ -14,7 +14,7 @@ import {
   DEFAULT_SCREENSHOT_CONFIG,
   DEFAULT_CUSTOMIZABLE,
 } from "@/config/constants";
-import { pushSettings } from "@/lib/appwrite";
+import { pushUserSettings } from "@/lib/backend";
 import { loadUserProfile } from "@/lib/storage/auth";
 
 const AppContext = createContext<IContextType | undefined>(undefined);
@@ -74,7 +74,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Sync to Appwrite
     const profile = loadUserProfile();
     if (profile?.id) {
-      pushSettings(profile.id).catch(console.warn);
+      pushUserSettings(profile.id).catch(console.warn);
     }
   }, []);
 

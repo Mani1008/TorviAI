@@ -1,6 +1,9 @@
 import Database from "@tauri-apps/plugin-sql";
 import type { ChatConversation, ChatMessage } from "@/types/completion";
-import { deleteRemoteConversation, deleteAllRemoteConversations } from "@/lib/appwrite";
+import {
+  deleteConversation as deleteRemoteConversation,
+  deleteAllConversations as deleteAllRemoteConversations,
+} from "@/lib/backend";
 import { loadUserProfile } from "@/lib/storage/auth";
 
 let db: Database | null = null;

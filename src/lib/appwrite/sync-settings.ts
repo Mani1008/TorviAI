@@ -61,7 +61,7 @@ export async function fetchRemoteSettings(userId: string): Promise<RemoteSetting
   try {
     const doc = await databases.getDocument(DATABASE_ID, COLLECTION_IDS.USER_SETTINGS, userId);
     return {
-      selectedModel: doc.selectedModel ?? "openrouter/auto",
+      selectedModel: doc.selectedModel ?? "nvidia/nemotron-3-super-120b-a12b:free",
       responseLength: doc.responseLength ?? "auto",
       language: doc.language ?? "English",
       systemPrompt: doc.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,

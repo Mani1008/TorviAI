@@ -91,8 +91,9 @@ pub(crate) fn read_blocking_internal() -> Result<WindowContext, String> {
         let app_name =
             get_process_name(pid).unwrap_or_else(|_| "Unknown".to_string());
 
-        // Extract all visible text using the 3-strategy fallback chain.
-        let text_content = extract_text(&element, &automation).unwrap_or_default();
+        // Extract all visible text using the multi-strategy fallback chain.
+        let text_content =
+            extract_text(&element, &automation, &app_name).unwrap_or_default();
 
         // Best-effort URL extraction for Chromium-based browsers.
         let url = extract_browser_url(&automation, &app_name);
@@ -127,10 +128,24 @@ pub(crate) fn read_blocking_internal() -> Result<WindowContext, String> {
 /// Strategy 2 — ValuePattern (single-line inputs)
 ///
 /// Strategy 3 — Tree walk (fallback for anything else)
+/// True when the foreground app is VS Code, Cursor, or a VS Code fork.
+#[cfg(target_os = "windows")]
+fn is_vscode_like_app(app_name: &str, window_title: &str) -> bool {
+    let app_lower = app_name.to_lowercase();
+    let title_lower = window_title.to_lowercase();
+    app_lower == "cursor"
+        || app_lower == "code"
+        || app_lower.contains("vscode")
+        || title_lower.contains("visual studio code")
+        || title_lower.contains(" - cursor")
+        || title_lower.contains(" — cursor")
+}
+
 #[cfg(target_os = "windows")]
 unsafe fn extract_text(
     element: &windows::Win32::UI::Accessibility::IUIAutomationElement,
     automation: &windows::Win32::UI::Accessibility::IUIAutomation,
+    app_name: &str,
 ) -> windows::core::Result<String> {
     use windows::Win32::UI::Accessibility::*;
 
@@ -145,19 +160,16 @@ unsafe fn extract_text(
     // tree: Explorer sidebar, Outline, Source Control, NPM scripts, breadcrumbs,
     // status bar, terminal panel — everything.  We must bypass it for VS Code.
     //
-    // Detection: window title always ends with " — Visual Studio Code" or
-    // " - Cursor".  This is more reliable than checking the process name here
-    // because `element` is the root window whose `CurrentName()` IS the title.
+    // Modern VS Code/Cursor also renders via the EditContext API: visible lines
+    // appear as `.view-line` elements whose Name holds the line text.  Without
+    // screen-reader mode, TextPattern on the editor pane often returns nothing —
+    // view-line collection is the reliable path for partial (viewport) content.
     {
         let window_title = element.CurrentName().unwrap_or_default().to_string();
-        let title_lower = window_title.to_lowercase();
-        let is_vscode_like = title_lower.contains("visual studio code")
-            || title_lower.ends_with(" — cursor")
-            || title_lower.ends_with(" - cursor");
+        let is_vscode_like = is_vscode_like_app(app_name, &window_title);
 
         if is_vscode_like {
             // Attempt 1: Find the editor-container pane by AutomationId.
-            // Each open editor tab has a Document child that exposes TextPattern.
             let editor_pane_ids = ["workbench.parts.editor", "editor container"];
             for pane_id in &editor_pane_ids {
                 let id_bstr = windows::core::BSTR::from(*pane_id);
@@ -166,7 +178,7 @@ unsafe fn extract_text(
                     &windows::core::VARIANT::from(id_bstr),
                 ) {
                     if let Ok(editor_pane) = element.FindFirst(TreeScope_Descendants, &cond) {
-                        // Collect text from Document descendants — each open tab is one.
+                        // 1a. TextPattern on Document descendants (full doc when a11y mode on).
                         if let Ok(doc_cond) = automation.CreatePropertyCondition(
                             UIA_ControlTypePropertyId,
                             &windows::core::VARIANT::from(UIA_DocumentControlTypeId.0),
@@ -178,18 +190,9 @@ unsafe fn extract_text(
                                 let mut best = String::new();
                                 for idx in 0..count {
                                     if let Ok(doc_el) = doc_array.GetElement(idx) {
-                                        if let Ok(pat) = doc_el
-                                            .GetCurrentPatternAs::<IUIAutomationTextPattern>(
-                                                UIA_TextPatternId,
-                                            )
-                                        {
-                                            if let Ok(range) = pat.DocumentRange() {
-                                                if let Ok(text) = range.GetText(-1) {
-                                                    let s = text.to_string();
-                                                    if s.len() > best.len() {
-                                                        best = s;
-                                                    }
-                                                }
+                                        if let Some(s) = text_from_element(&doc_el) {
+                                            if s.len() > best.len() {
+                                                best = s;
                                             }
                                         }
                                     }
@@ -199,17 +202,18 @@ unsafe fn extract_text(
                                 }
                             }
                         }
-                        // Fallback: TextPattern directly on the editor pane element.
-                        if let Ok(pat) = editor_pane
-                            .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
-                        {
-                            if let Ok(range) = pat.DocumentRange() {
-                                if let Ok(text) = range.GetText(-1) {
-                                    let s = text.to_string();
-                                    if s.len() > 100 {
-                                        return Ok(truncate_text(s, 20_000));
-                                    }
-                                }
+
+                        // 1b. Visible viewport lines (.view-line) inside the editor pane.
+                        if let Some(lines) = collect_view_line_text(&editor_pane, automation) {
+                            if lines.len() > 80 {
+                                return Ok(truncate_text(lines, 20_000));
+                            }
+                        }
+
+                        // 1c. TextPattern directly on the editor pane element.
+                        if let Some(s) = text_from_element(&editor_pane) {
+                            if s.len() > 100 {
+                                return Ok(truncate_text(s, 20_000));
                             }
                         }
                         break;
@@ -217,36 +221,47 @@ unsafe fn extract_text(
                 }
             }
 
-            // Attempt 2: Find the monaco-editor element by ClassName.
-            // VS Code renders each editor using a <div class="monaco-editor"> whose
-            // wrapper element is ClassName-accessible via UIAutomation.
-            if let Ok(cond) = automation.CreatePropertyCondition(
-                UIA_ClassNamePropertyId,
-                &windows::core::VARIANT::from(
-                    windows::core::BSTR::from("monaco-editor"),
-                ),
-            ) {
-                if let Ok(editor_el) = element.FindFirst(TreeScope_Descendants, &cond) {
-                    if let Ok(pat) = editor_el
-                        .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
-                    {
-                        if let Ok(range) = pat.DocumentRange() {
-                            if let Ok(text) = range.GetText(-1) {
-                                let s = text.to_string();
-                                if s.len() > 100 {
-                                    return Ok(truncate_text(s, 20_000));
-                                }
+            // Attempt 2: native-edit-context (EditContext API in modern VS Code).
+            for edit_id in &["native-edit-context", "vscode-text-input"] {
+                let id_bstr = windows::core::BSTR::from(*edit_id);
+                if let Ok(cond) = automation.CreatePropertyCondition(
+                    UIA_AutomationIdPropertyId,
+                    &windows::core::VARIANT::from(id_bstr),
+                ) {
+                    if let Ok(edit_el) = element.FindFirst(TreeScope_Descendants, &cond) {
+                        if let Some(s) = text_from_element(&edit_el) {
+                            if s.len() > 80 {
+                                return Ok(truncate_text(s, 20_000));
                             }
                         }
                     }
                 }
             }
 
-            // VS Code detected but neither editor selector worked (e.g. Welcome tab,
-            // extension views, Settings UI).  Skip Strategy 1 — it would capture
-            // the full sidebar tree.  Fall through to the filtered tree walk below,
-            // which at least strips buttons, toolbars, and menus.
-            return walk_children(element, automation, 0);
+            // Attempt 3: monaco-editor element (ClassName may include extra tokens).
+            if let Some(s) = collect_text_by_class_substring(element, automation, "monaco-editor", 25) {
+                if s.len() > 100 {
+                    return Ok(truncate_text(s, 20_000));
+                }
+            }
+
+            // Attempt 4: Focused element + ancestors (caret is usually in the editor).
+            if let Some(s) = text_from_focused_element(automation) {
+                if s.len() > 80 {
+                    return Ok(truncate_text(s, 20_000));
+                }
+            }
+
+            // Attempt 5: Collect all visible .view-line text from the whole window.
+            if let Some(lines) = collect_view_line_text(element, automation) {
+                if lines.len() > 80 {
+                    return Ok(truncate_text(lines, 20_000));
+                }
+            }
+
+            // VS Code detected but editor selectors failed (Welcome tab, Settings, etc.).
+            // Use a scoped walk that skips Header/Outline nodes — never Strategy 1.
+            return walk_children(element, automation, 0, false);
         }
     }
 
@@ -302,7 +317,7 @@ unsafe fn extract_text(
                 // web apps where TextPattern returns nothing.
                 // By walking from web_el we stay entirely inside the webpage —
                 // Chrome toolbars, menus, and extension buttons are outside this subtree.
-                let scoped = walk_children(&web_el, automation, 0);
+                let scoped = walk_children(&web_el, automation, 0, false);
                 if let Ok(text) = scoped {
                     if text.len() > 50 {
                         return Ok(truncate_text(text, 20_000));
@@ -367,7 +382,206 @@ unsafe fn extract_text(
     }
 
     // Strategy 3 — Walk the element tree and concatenate Name properties.
-    walk_children(element, automation, 0)
+    walk_children(element, automation, 0, false)
+}
+
+/// Read text via TextPattern or ValuePattern from a single element.
+#[cfg(target_os = "windows")]
+unsafe fn text_from_element(
+    element: &windows::Win32::UI::Accessibility::IUIAutomationElement,
+) -> Option<String> {
+    use windows::Win32::UI::Accessibility::*;
+
+    if let Ok(pattern) =
+        element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+    {
+        if let Ok(range) = pattern.DocumentRange() {
+            if let Ok(text) = range.GetText(-1) {
+                let s = text.to_string();
+                if !s.trim().is_empty() {
+                    return Some(s);
+                }
+            }
+        }
+    }
+
+    let is_pw = element
+        .CurrentIsPassword()
+        .map(|b| b.as_bool())
+        .unwrap_or(false);
+    if !is_pw {
+        if let Ok(pattern) =
+            element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+        {
+            if let Ok(val) = pattern.CurrentValue() {
+                let s = val.to_string();
+                if !s.trim().is_empty() {
+                    return Some(s);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Collect visible editor lines from Monaco's `.view-line` elements.
+#[cfg(target_os = "windows")]
+unsafe fn collect_view_line_text(
+    root: &windows::Win32::UI::Accessibility::IUIAutomationElement,
+    automation: &windows::Win32::UI::Accessibility::IUIAutomation,
+) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+    collect_view_lines_recursive(root, automation, 0, 25, &mut lines);
+    if lines.is_empty() {
+        return None;
+    }
+    let joined = lines.join("\n");
+    if joined.trim().len() < 20 {
+        return None;
+    }
+    Some(joined)
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn collect_view_lines_recursive(
+    element: &windows::Win32::UI::Accessibility::IUIAutomationElement,
+    automation: &windows::Win32::UI::Accessibility::IUIAutomation,
+    depth: u32,
+    max_depth: u32,
+    lines: &mut Vec<String>,
+) {
+    if depth > max_depth {
+        return;
+    }
+
+    let class = element
+        .CurrentClassName()
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    if class.contains("view-line") {
+        if let Some(text) = text_from_element(element) {
+            let trimmed = text.trim();
+            if trimmed.len() >= 2 {
+                lines.push(trimmed.to_string());
+            }
+        } else if let Ok(name) = element.CurrentName() {
+            let s = name.to_string();
+            if s.trim().len() >= 2 {
+                lines.push(s.trim().to_string());
+            }
+        }
+    }
+
+    let condition = match automation.CreateTrueCondition() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let walker = match automation.CreateTreeWalker(&condition) {
+        Ok(w) => w,
+        Err(_) => return,
+    };
+
+    let first_child = match walker.GetFirstChildElement(element) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut child = first_child;
+    loop {
+        collect_view_lines_recursive(&child, automation, depth + 1, max_depth, lines);
+        match walker.GetNextSiblingElement(&child) {
+            Ok(next) => child = next,
+            Err(_) => break,
+        }
+    }
+}
+
+/// Collect the longest TextPattern/Name text from elements whose ClassName contains `needle`.
+#[cfg(target_os = "windows")]
+unsafe fn collect_text_by_class_substring(
+    root: &windows::Win32::UI::Accessibility::IUIAutomationElement,
+    automation: &windows::Win32::UI::Accessibility::IUIAutomation,
+    needle: &str,
+    max_depth: u32,
+) -> Option<String> {
+    let mut best = String::new();
+    collect_class_text_recursive(root, automation, needle, 0, max_depth, &mut best);
+    if best.is_empty() {
+        None
+    } else {
+        Some(best)
+    }
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn collect_class_text_recursive(
+    element: &windows::Win32::UI::Accessibility::IUIAutomationElement,
+    automation: &windows::Win32::UI::Accessibility::IUIAutomation,
+    needle: &str,
+    depth: u32,
+    max_depth: u32,
+    best: &mut String,
+) {
+    if depth > max_depth {
+        return;
+    }
+
+    let class = element
+        .CurrentClassName()
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    if class.contains(needle) {
+        if let Some(text) = text_from_element(element) {
+            if text.len() > best.len() {
+                *best = text;
+            }
+        }
+    }
+
+    let condition = match automation.CreateTrueCondition() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let walker = match automation.CreateTreeWalker(&condition) {
+        Ok(w) => w,
+        Err(_) => return,
+    };
+
+    let first_child = match walker.GetFirstChildElement(element) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut child = first_child;
+    loop {
+        collect_class_text_recursive(&child, automation, needle, depth + 1, max_depth, best);
+        match walker.GetNextSiblingElement(&child) {
+            Ok(next) => child = next,
+            Err(_) => break,
+        }
+    }
+}
+
+/// Try TextPattern on the focused element and up to five ancestors.
+#[cfg(target_os = "windows")]
+unsafe fn text_from_focused_element(
+    automation: &windows::Win32::UI::Accessibility::IUIAutomation,
+) -> Option<String> {
+    let focused = automation.GetFocusedElement().ok()?;
+    let condition = automation.CreateTrueCondition().ok()?;
+    let walker = automation.CreateTreeWalker(&condition).ok()?;
+
+    let mut current = focused;
+    for _ in 0..6 {
+        if let Some(text) = text_from_element(&current) {
+            if text.len() > 80 {
+                return Some(text);
+            }
+        }
+        current = walker.GetParentElement(&current).ok()?;
+    }
+    None
 }
 
 /// Recursively walk the element tree collecting visible text (max depth 15).
@@ -385,6 +599,7 @@ unsafe fn walk_children(
     element: &windows::Win32::UI::Accessibility::IUIAutomationElement,
     automation: &windows::Win32::UI::Accessibility::IUIAutomation,
     depth: u32,
+    include_headers: bool,
 ) -> windows::core::Result<String> {
     if depth > 15 {
         return Ok(String::new());
@@ -393,16 +608,29 @@ unsafe fn walk_children(
     use windows::Win32::UI::Accessibility::*;
 
     // Control type IDs whose Name property represents readable content.
-    const CONTENT_TYPES: &[UIA_CONTROLTYPE_ID] = &[
-        UIA_EditControlTypeId,
-        UIA_HyperlinkControlTypeId,
-        UIA_TextControlTypeId,
-        UIA_TreeItemControlTypeId,
-        UIA_DataItemControlTypeId,
-        UIA_DocumentControlTypeId,
-        UIA_HeaderControlTypeId,
-        UIA_HeaderItemControlTypeId,
-    ];
+    // Header types are excluded by default — they capture outline/breadcrumb
+    // headings in VS Code and browser chrome, not document body text.
+    let content_types: &[UIA_CONTROLTYPE_ID] = if include_headers {
+        &[
+            UIA_EditControlTypeId,
+            UIA_HyperlinkControlTypeId,
+            UIA_TextControlTypeId,
+            UIA_TreeItemControlTypeId,
+            UIA_DataItemControlTypeId,
+            UIA_DocumentControlTypeId,
+            UIA_HeaderControlTypeId,
+            UIA_HeaderItemControlTypeId,
+        ]
+    } else {
+        &[
+            UIA_EditControlTypeId,
+            UIA_HyperlinkControlTypeId,
+            UIA_TextControlTypeId,
+            UIA_TreeItemControlTypeId,
+            UIA_DataItemControlTypeId,
+            UIA_DocumentControlTypeId,
+        ]
+    };
 
     // UI-chrome types — skip entirely (no Name collection, no recursion).
     // These account for ~90 % of the noise seen in browser captures.
@@ -459,7 +687,7 @@ unsafe fn walk_children(
 
         if !is_pw {
             // Collect Name only from elements that carry readable content.
-            if CONTENT_TYPES.contains(&ctrl) {
+            if content_types.contains(&ctrl) {
                 if let Ok(name) = child.CurrentName() {
                     let s = name.to_string();
                     if s.len() > 1 {
@@ -469,7 +697,7 @@ unsafe fn walk_children(
             }
 
             // Recurse into container / unknown elements.
-            if let Ok(nested) = walk_children(&child, automation, depth + 1) {
+            if let Ok(nested) = walk_children(&child, automation, depth + 1, include_headers) {
                 if !nested.is_empty() {
                     parts.push(nested);
                 }

@@ -22,7 +22,7 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@/lib/platform";
-import { logout } from "@/lib/appwrite";
+import { logout } from "@/lib/backend";
 import { clearAuthToken, clearUserProfile, loadUserProfile } from "@/lib/storage/auth";
 import type { UserProfile } from "@/types/settings";
 import { useHistory } from "@/hooks/useHistory";
@@ -117,11 +117,14 @@ interface ContextPanelProps {
   onPause: () => void;
   onClose: () => void;
   onManage: () => void;
+  onDataDeleted: () => void;
 }
 
-function ContextPanel({ status, onResume, onPause, onClose, onManage }: ContextPanelProps) {
+function ContextPanel({ status, onResume, onPause, onClose, onManage, onDataDeleted }: ContextPanelProps) {
   const [resuming, setResuming] = useState(false);
   const [infoVisible, setInfoVisible] = useState(true);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleResume = async () => {
     setResuming(true);
@@ -140,6 +143,25 @@ function ContextPanel({ status, onResume, onPause, onClose, onManage }: ContextP
       localStorage.setItem("ctx_watcher_paused", "1"); // remember user pause intent
       onPause();
     } catch { /* ignore */ }
+  };
+
+  const handleDeleteData = async () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await invoke("clear_context_data");
+      localStorage.removeItem("ctx_watcher_paused");
+      onDataDeleted();
+      onClose();
+    } catch (err) {
+      console.error("[Sidebar] clear_context_data failed:", err);
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
   };
 
   return (
@@ -193,10 +215,36 @@ function ContextPanel({ status, onResume, onPause, onClose, onManage }: ContextP
             </button>
           )}
           <div className="border-t border-border/60" />
-          <button className="flex w-full items-center justify-between px-1 py-2.5 text-sm text-foreground/70 hover:text-foreground transition-colors">
-            <span>Delete Data</span>
-            <ChevronRight className="h-3.5 w-3.5 text-foreground/30" />
+          <button
+            onClick={handleDeleteData}
+            disabled={deleting}
+            className={`flex w-full items-center justify-between px-1 py-2.5 text-sm transition-colors disabled:opacity-50 ${
+              confirmDelete
+                ? "text-red-500 hover:text-red-600"
+                : "text-foreground/70 hover:text-foreground"
+            }`}
+          >
+            <span>
+              {deleting
+                ? "Deleting…"
+                : confirmDelete
+                ? "Confirm — this cannot be undone"
+                : "Delete Data"}
+            </span>
+            {!deleting && (
+              confirmDelete
+                ? <span className="text-[11px] font-medium text-red-500 shrink-0 ml-2">Tap to confirm</span>
+                : <ChevronRight className="h-3.5 w-3.5 text-foreground/30" />
+            )}
           </button>
+          {confirmDelete && !deleting && (
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="w-full px-1 pb-1.5 text-left text-[11px] text-foreground/35 hover:text-foreground/60 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
           <div className="border-t border-border/60" />
           <div className="flex items-center justify-between px-1 py-2">
             <span className="text-[11px] text-muted-foreground leading-snug max-w-[130px]">
@@ -463,6 +511,7 @@ export function Sidebar(_props?: SidebarProps) {
             setContextPanelOpen(false);
             navigate("/settings");
           }}
+          onDataDeleted={() => setWatcherStatus("stopped")}
         />
       )}
     </aside>

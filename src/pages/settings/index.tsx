@@ -3,6 +3,7 @@ import { PageLayout } from "@/layouts";
 import { useAppContext } from "@/contexts/app.context";
 import {
   INTERVIEW_ROLES,
+  DEFAULT_ROLE_ID,
   type InterviewRoleId,
   type SpecialisationId,
 } from "@/config/interview-roles.constants";
@@ -12,7 +13,7 @@ import {
   loadInterviewSpec,
 } from "@/lib/storage/ai-providers";
 import { loadResponseSettings, saveResponseSettings } from "@/lib/storage/response-settings.storage";
-import { logout } from "@/lib/appwrite";
+import { logout } from "@/lib/backend";
 import { clearAuthToken, clearUserProfile, loadUserProfile } from "@/lib/storage/auth";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -71,7 +72,9 @@ export default function Settings() {
   // Save flash
   const [saved, setSaved] = useState(false);
 
-  const currentRole = INTERVIEW_ROLES.find((r) => r.id === selectedRole)!;
+  const currentRole =
+    INTERVIEW_ROLES.find((r) => r.id === selectedRole) ??
+    INTERVIEW_ROLES.find((r) => r.id === DEFAULT_ROLE_ID)!;
 
   const handleRoleSelect = (roleId: InterviewRoleId) => {
     setSelectedRole(roleId);

@@ -9,6 +9,7 @@ import { initDatabase, initSystemPromptsTable } from "@/lib/database";
 import { initContextStore, pruneOldContext } from "@/lib/database/context-store";
 import { initSessionTracking } from "@/lib/storage/usage";
 import { isTauri } from "@/lib/platform";
+import { pingBackend } from "@/lib/backend";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./global.css";
@@ -65,6 +66,9 @@ if (isTauri()) {
     }, 10_000);
   }
 }
+// Verify cloud backend connectivity on every app launch (see pingBackend in lib/backend)
+pingBackend();
+
 // Track session count for usage stats
 initSessionTracking();
 

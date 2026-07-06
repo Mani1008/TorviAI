@@ -47,6 +47,8 @@ pub fn run() {
                 None,
             ),
         )
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         // --- App setup ---
         .setup(|app| {
             let main_window = app.get_webview_window("main")
@@ -103,6 +105,64 @@ pub fn run() {
                 }
             }).unwrap_or_else(|e| log::error!("[GlobalShortcut] Failed to register Ctrl+Shift+I: {}", e));
 
+            // Register global shortcut: Ctrl+Shift+D → toggle dashboard window
+            let h3 = app.handle().clone();
+            app.global_shortcut().on_shortcut("ctrl+shift+d", move |_app, _shortcut, event| {
+                if event.state == ShortcutState::Pressed {
+                    if !h3.state::<window::AuthState>().is_unlocked() {
+                        return;
+                    }
+                    let h = h3.clone();
+                    tauri::async_runtime::spawn(async move {
+                        window::toggle_dashboard(h).await
+                            .unwrap_or_else(|e| log::error!("[GlobalShortcut] toggle_dashboard failed: {}", e));
+                    });
+                }
+            }).unwrap_or_else(|e| log::error!("[GlobalShortcut] Failed to register Ctrl+Shift+D: {}", e));
+
+            // Register global shortcut: Ctrl+Shift+S → screenshot analysis
+            // Emits an event to the main window so React can invoke start_screen_capture
+            // and attach the result to the next AI message.
+            let h4 = app.handle().clone();
+            app.global_shortcut().on_shortcut("ctrl+shift+s", move |_app, _shortcut, event| {
+                if event.state == ShortcutState::Pressed {
+                    if !h4.state::<window::AuthState>().is_unlocked() {
+                        return;
+                    }
+                    if let Some(w) = h4.get_webview_window("main") {
+                        let _ = w.emit("trigger-screenshot", ());
+                    }
+                }
+            }).unwrap_or_else(|e| log::error!("[GlobalShortcut] Failed to register Ctrl+Shift+S: {}", e));
+
+            // Register global shortcut: Ctrl+Shift+A → toggle system audio capture
+            // Emits an event to the main window so React toggles the VAD pipeline.
+            let h5 = app.handle().clone();
+            app.global_shortcut().on_shortcut("ctrl+shift+a", move |_app, _shortcut, event| {
+                if event.state == ShortcutState::Pressed {
+                    if !h5.state::<window::AuthState>().is_unlocked() {
+                        return;
+                    }
+                    if let Some(w) = h5.get_webview_window("main") {
+                        let _ = w.emit("toggle-system-audio", ());
+                    }
+                }
+            }).unwrap_or_else(|e| log::error!("[GlobalShortcut] Failed to register Ctrl+Shift+A: {}", e));
+
+            // Register global shortcut: Ctrl+Shift+M → toggle microphone
+            // Emits an event to the main window so React toggles the mic recording hook.
+            let h6 = app.handle().clone();
+            app.global_shortcut().on_shortcut("ctrl+shift+m", move |_app, _shortcut, event| {
+                if event.state == ShortcutState::Pressed {
+                    if !h6.state::<window::AuthState>().is_unlocked() {
+                        return;
+                    }
+                    if let Some(w) = h6.get_webview_window("main") {
+                        let _ = w.emit("toggle-microphone", ());
+                    }
+                }
+            }).unwrap_or_else(|e| log::error!("[GlobalShortcut] Failed to register Ctrl+Shift+M: {}", e));
+
             Ok(())
         })
         // --- IPC Command Handlers ---
@@ -130,6 +190,7 @@ pub fn run() {
             app_context::start_context_watcher,
             app_context::stop_context_watcher,
             app_context::get_watcher_status,
+            app_context::clear_context_data,
             // Shortcut commands
             shortcuts::update_shortcuts,
             shortcuts::get_registered_shortcuts,

@@ -8,7 +8,7 @@ import {
 } from "@/lib/database";
 import { incrementAiResponses, checkAiResponseLimit } from "@/lib/storage/usage-stats";
 import { invoke } from "@tauri-apps/api/core";
-import { syncConversation } from "@/lib/appwrite";
+import { syncConversationRemote } from "@/lib/backend";
 import { loadUserProfile } from "@/lib/storage/auth";
 
 /**
@@ -140,8 +140,14 @@ export function useCompletion() {
         if ((err as Error).name !== "AbortError") {
           const errMsg = (err as Error).message || String(err);
           // Map provider errors to user-safe messages — do not expose raw API responses
-          if (errMsg.includes("401") || errMsg.includes("Unauthorized") || errMsg.includes("Authentication error")) {
-            setError("Authentication error. Please contact support.");
+          if (
+            errMsg.includes("API key") ||
+            errMsg.includes("OPENROUTER") ||
+            errMsg.includes("NVIDIA_API_KEY") ||
+            errMsg.includes("401") ||
+            errMsg.includes("Unauthorized")
+          ) {
+            setError(errMsg);
           } else if (errMsg.includes("429") || errMsg.includes("rate limit") || errMsg.includes("Rate limited")) {
             setError("Rate limited. Please wait a moment and try again.");
           } else if (errMsg.includes("500") || errMsg.includes("server error") || errMsg.includes("Server error")) {
@@ -171,7 +177,7 @@ export function useCompletion() {
           if (profile?.id) {
             // Decrement via Rust so the API key is used — users cannot forge this
             invoke("record_usage", { userId: profile.id, usageType: "ai_response" }).catch(console.warn);
-            syncConversation(profile.id, {
+            syncConversationRemote(profile.id, {
               id: conversationIdRef.current,
               title: messages[0]?.content?.slice(0, 50) || "New conversation",
               createdAt: Date.now(),

@@ -1,4 +1,8 @@
-export { client, account, databases, storage, isAppwriteConfigured, DATABASE_ID, COLLECTION_IDS, BUCKET_IDS } from "./client";
+/**
+ * @internal Appwrite provider — do not import from application code.
+ * Use @/lib/backend instead. This module will be removed in Phase 6.
+ */
+export { client, account, databases, storage, isAppwriteConfigured, pingAppwrite, DATABASE_ID, COLLECTION_IDS, BUCKET_IDS } from "./client";
 export { getOAuthUrl, createSessionFromOAuth, getActiveSession, logout, resolveUserProfile } from "./auth";
 export { syncUserProfile, fetchRemoteUsage, fetchRemotePlan } from "./sync-profiles";
 export { syncConversation, deleteRemoteConversation, fetchRemoteConversations, deleteAllRemoteConversations } from "./sync-conversations";

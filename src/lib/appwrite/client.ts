@@ -6,8 +6,11 @@ import { Client, Account, Databases, Storage } from "appwrite";
 // permissions: every collection MUST use Role.user($userId) for read/write so
 // that users can only access their own documents. Never use Role.any() on
 // collections that contain user data.
-const ENDPOINT = import.meta.env.VITE_APPWRITE_ENDPOINT || "https://cloud.appwrite.io/v1";
-const PROJECT_ID = import.meta.env.VITE_APPWRITE_PROJECT_ID || "";
+// Torvi Second Brain — defaults match Appwrite project "Torvi Second Brain"
+const ENDPOINT =
+  import.meta.env.VITE_APPWRITE_ENDPOINT || "https://sgp.cloud.appwrite.io/v1";
+const PROJECT_ID =
+  import.meta.env.VITE_APPWRITE_PROJECT_ID || "6a2848bb002900d602b5";
 
 export const DATABASE_ID = import.meta.env.VITE_APPWRITE_DATABASE_ID || "";
 
@@ -27,11 +30,7 @@ export const BUCKET_IDS = {
   SCREENSHOTS: import.meta.env.VITE_APPWRITE_BUCKET_SCREENSHOTS || "",
 } as const;
 
-const client = new Client();
-
-if (ENDPOINT && PROJECT_ID) {
-  client.setEndpoint(ENDPOINT).setProject(PROJECT_ID);
-}
+const client = new Client().setEndpoint(ENDPOINT).setProject(PROJECT_ID);
 
 export const account = new Account(client);
 export const databases = new Databases(client);
@@ -41,4 +40,19 @@ export { client };
 /** Returns true if Appwrite env vars are configured. */
 export function isAppwriteConfigured(): boolean {
   return !!(PROJECT_ID && DATABASE_ID);
+}
+
+/**
+ * Ping the Appwrite backend on app launch to verify endpoint/project setup.
+ * Called automatically from main.tsx — check the browser/devtools console for results.
+ */
+export function pingAppwrite(): void {
+  client
+    .ping()
+    .then(() => {
+      console.log("[Appwrite] Ping OK — backend reachable at", ENDPOINT);
+    })
+    .catch((e: unknown) => {
+      console.warn("[Appwrite] Ping failed — check endpoint/project config:", e);
+    });
 }
