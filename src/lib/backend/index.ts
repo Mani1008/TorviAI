@@ -24,6 +24,8 @@ export type {
   CreateMemorySourceInput,
 } from "./types";
 
+export type { MemorySyncResult, MemorySyncSkipReason } from "@/lib/memory-sync";
+
 export { getBackendProvider, isSupabaseProvider, isAppwriteProvider } from "./config";
 export type { BackendProvider } from "./config";
 
@@ -61,7 +63,19 @@ export {
   listMemorySources,
   createMemorySource,
   deleteMemorySource,
+  findMemoryByContentHash,
 } from "./database.service";
+
+export {
+  syncContextChunksToCloud,
+  getMemorySyncQueueStatus,
+  scheduleMemoryChunkSync,
+  loadMemorySyncSettings,
+  saveMemorySyncSettings,
+  initMemorySyncState,
+  decryptFromCloud,
+  isEncryptedCloudContent,
+} from "@/lib/memory-sync";
 
 export {
   syncScreenshot,

@@ -13,7 +13,7 @@ import {
   loadInterviewSpec,
 } from "@/lib/storage/ai-providers";
 import { loadResponseSettings, saveResponseSettings } from "@/lib/storage/response-settings.storage";
-import { logout } from "@/lib/backend";
+import { logout, loadMemorySyncSettings, saveMemorySyncSettings } from "@/lib/backend";
 import { clearAuthToken, clearUserProfile, loadUserProfile } from "@/lib/storage/auth";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -26,6 +26,7 @@ import {
   Sparkles,
   Info,
   Check,
+  Cloud,
 } from "lucide-react";
 
 // ─── Icon resolver ────────────────────────────────────────────────────────────
@@ -72,6 +73,12 @@ export default function Settings() {
   // Save flash
   const [saved, setSaved] = useState(false);
 
+  const [cloudMemorySync, setCloudMemorySync] = useState(
+    () => loadMemorySyncSettings().enabled
+  );
+
+  const user = loadUserProfile();
+
   const currentRole =
     INTERVIEW_ROLES.find((r) => r.id === selectedRole) ??
     INTERVIEW_ROLES.find((r) => r.id === DEFAULT_ROLE_ID)!;
@@ -98,8 +105,6 @@ export default function Settings() {
     clearUserProfile();
     await invoke("lock_app").catch(() => {});
   };
-
-  const user = loadUserProfile();
 
   return (
     <PageLayout title="Settings" description="Configure AI model, response preferences, and system prompt">
@@ -256,6 +261,42 @@ export default function Settings() {
           <p className="text-xs text-muted-foreground">
             This prompt is used as the default instruction for all AI interactions.
           </p>
+        </section>
+
+        {/* ── Cloud second brain ── */}
+        <section className="space-y-4">
+          <h3 className="text-base font-semibold">Cloud second brain</h3>
+          <div className="flex items-center justify-between rounded-xl border border-border p-4">
+            <div className="flex items-start gap-3">
+              <Cloud className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium">Sync context to cloud memory</p>
+                <p className="text-xs text-muted-foreground mt-0.5 max-w-md">
+                  Upload local screen context chunks to Supabase when configured.
+                  Manage queue and encryption on the Context Memory page.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={cloudMemorySync}
+              onClick={() => {
+                const next = !cloudMemorySync;
+                setCloudMemorySync(next);
+                saveMemorySyncSettings({ enabled: next });
+              }}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ml-4 ${
+                cloudMemorySync ? "bg-primary" : "bg-muted"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  cloudMemorySync ? "translate-x-5" : ""
+                }`}
+              />
+            </button>
+          </div>
         </section>
 
         {/* ── Security ── */}

@@ -29,6 +29,7 @@ export {
   listMemorySources,
   createMemorySource,
   deleteMemorySource,
+  findMemoryByContentHash,
 } from "./database";
 
 export { runSupabaseStartupSync } from "./sync";

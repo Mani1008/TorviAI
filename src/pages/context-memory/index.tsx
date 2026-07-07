@@ -2,12 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { PageLayout } from "@/layouts";
-import {
-  getRecentContext,
-  pruneOldContext,
-  type ContextChunk,
-  type AppContextSnapshot,
-} from "@/lib/database/context-store";
+import { getRecentContext, pruneOldContext, type ContextChunk, type AppContextSnapshot } from "@/lib/database/context-store";
+import { filterArchitectureCaptures } from "@/lib/context-memory/exclusions";
+import { CloudMemorySyncCard } from "@/components/CloudMemorySyncCard";
 import { Brain, Trash2, RefreshCw, Circle, Pause, Play } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -67,7 +64,7 @@ export default function ContextMemory() {
     try {
       // Fetch up to 100 chunks from the last 24 hours
       const rows = await getRecentContext(100, 24 * 60);
-      setChunks(rows);
+      setChunks(filterArchitectureCaptures(rows));
     } finally {
       setLoading(false);
     }
@@ -317,6 +314,8 @@ export default function ContextMemory() {
       }
     >
       <div className="space-y-4 max-w-4xl">
+
+        <CloudMemorySyncCard />
 
         {/* ── How it works banner ── */}
         <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 text-sm">

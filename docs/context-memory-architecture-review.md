@@ -2,7 +2,7 @@
 
 **Project:** Torvi AI — Local-first Context Memory System  
 **Date:** June 9, 2026  
-**Inputs:** `docs/supabase-schema-plan.md`, `context-memory.md`, `Company-Brain.md`, current SQLite/Rust capture pipeline  
+**Inputs:** `docs/supabase-schema-plan.md`, `docs/context-memory.md`, `docs/Company-Brain.md`, current SQLite/Rust capture pipeline  
 **Status:** Architecture review only — **no migrations, no code changes**
 
 ---

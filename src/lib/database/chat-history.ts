@@ -69,6 +69,13 @@ export async function initDatabase(): Promise<void> {
   await conn.execute(
     `CREATE INDEX IF NOT EXISTS idx_screenshots_captured_at ON screenshots(captured_at DESC)`
   );
+
+  // Citation sources per assistant message (added after initial schema)
+  try {
+    await conn.execute(`ALTER TABLE messages ADD COLUMN context_sources TEXT`);
+  } catch {
+    // Column already exists
+  }
 }
 
 export async function createConversation(
@@ -196,8 +203,11 @@ export async function addMessage(
   const attachedFiles = message.attachedFiles
     ? JSON.stringify(message.attachedFiles)
     : null;
+  const contextSources = message.sources?.length
+    ? JSON.stringify(message.sources)
+    : null;
   await conn.execute(
-    "INSERT OR REPLACE INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES ($1, $2, $3, $4, $5, $6)",
+    "INSERT OR REPLACE INTO messages (id, conversation_id, role, content, timestamp, attached_files, context_sources) VALUES ($1, $2, $3, $4, $5, $6, $7)",
     [
       message.id,
       conversationId,
@@ -205,6 +215,7 @@ export async function addMessage(
       message.content,
       message.timestamp,
       attachedFiles,
+      contextSources,
     ]
   );
 }
@@ -220,6 +231,7 @@ export async function getMessagesByConversation(
       content: string;
       timestamp: number;
       attached_files: string | null;
+      context_sources: string | null;
     }[]
   >(
     "SELECT * FROM messages WHERE conversation_id = $1 ORDER BY timestamp ASC",
@@ -232,6 +244,7 @@ export async function getMessagesByConversation(
     content: row.content,
     timestamp: row.timestamp,
     attachedFiles: row.attached_files ? JSON.parse(row.attached_files) : undefined,
+    sources: row.context_sources ? JSON.parse(row.context_sources) : undefined,
   }));
 }
 

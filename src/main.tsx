@@ -7,6 +7,8 @@ import { ToastProvider } from "@/contexts/toast.context";
 import { router } from "@/routes";
 import { initDatabase, initSystemPromptsTable } from "@/lib/database";
 import { initContextStore, pruneOldContext } from "@/lib/database/context-store";
+import { initMemorySyncState, scheduleMemoryChunkSync } from "@/lib/memory-sync";
+import { listen } from "@tauri-apps/api/event";
 import { initSessionTracking } from "@/lib/storage/usage";
 import { isTauri } from "@/lib/platform";
 import { pingBackend } from "@/lib/backend";
@@ -26,6 +28,7 @@ if (isTauri()) {
   // no listener registered and no chunks ever saved.
   initContextStore()
     .then(() => {
+      initMemorySyncState().catch(console.error);
       pruneOldContext().catch(console.error);
       setInterval(() => pruneOldContext().catch(console.error), 60 * 60 * 1000);
     })
@@ -50,6 +53,11 @@ if (isTauri()) {
     // We no longer register a JS listen("context-captured") for saving here —
     // the previous JS-side tauri-plugin-sql execute() was silently dropping all
     // INSERT OR REPLACE statements (rows_affected=0, no exception thrown).
+
+    // Debounced cloud memory upload when new chunks land in SQLite.
+    listen<void>("context-chunks-saved", () => {
+      scheduleMemoryChunkSync();
+    }).catch(console.warn);
 
     // Watchdog: restart the watcher if it stops unexpectedly (HMR, crash, etc.)
     // unless the user deliberately paused it via the UI.

@@ -26,6 +26,21 @@ export interface AttachedFile {
 }
 
 /**
+ * A single screen-context source cited for an AI response.
+ */
+export interface ContextSourceCitation {
+  chunkId: string;
+  appName: string;
+  windowTitle: string;
+  contentType: string;
+  url: string | null;
+  /** Unix timestamp (seconds) when the chunk was captured. */
+  capturedAt: number;
+  /** Short preview shown in the citation card (truncated chunk text). */
+  snippet: string;
+}
+
+/**
  * A single chat message stored in the database.
  */
 export interface ChatMessage {
@@ -34,6 +49,8 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   attachedFiles?: AttachedFile[];
+  /** Screen context chunks injected into this assistant reply (RAG sources). */
+  sources?: ContextSourceCitation[];
 }
 
 /**

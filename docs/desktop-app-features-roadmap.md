@@ -27,7 +27,7 @@
 ---
 
 > **Purpose:** Single source of truth for what Torvi must include to reach Littlebird-class “second brain” parity, plus what is already shipped.  
-> **Reference:** [`littlebird_architecture.md`](../littlebird_architecture.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md)  
+> **Reference:** [`littlebird_architecture.md`](./littlebird_architecture.md), [`ARCHITECTURE.md`](./ARCHITECTURE.md)  
 > **Last updated:** July 2026
 
 ---
@@ -134,8 +134,8 @@ User (Windows / macOS)
 | Image attachments (paste / file / screenshot) | ✅ Shipped | Up to 6 images per message |
 | Keep-engaged conversation mode | ✅ Shipped | Toggle includes prior turns in prompt |
 | Message history popover | ✅ Shipped | View thread in overlay |
-| **Context indicator** (“watching Cursor · doc.md”) | 🔲 Planned | Shows active app + that context will be used |
-| **Source citations in responses** | 🔲 Planned | Cards: app, window title, timestamp; optional deep link |
+| **Context indicator** (“watching Cursor · doc.md”) | ✅ Shipped | Slim strip below overlay pill; live updates from `context-captured` |
+| **Source citations in responses** | ✅ Shipped | Expandable cards: app, window title, timestamp, excerpt |
 | Quick actions: Insert / Copy / Open in Chat | 🟡 Partial | Copy exists; insert into other apps not built |
 
 ### 2.2 Chat module (dashboard)
@@ -149,7 +149,7 @@ User (Windows / macOS)
 | Delete conversation | ✅ Shipped | With confirmation |
 | Attach to overlay | 🟡 Partial | Cross-window attach via localStorage event |
 | Model / role selector (no raw model IDs) | ✅ Shipped | Interview/meeting roles → model routing |
-| **“Thinking / reading N sources” indicator** | 🔲 Planned | Shows when RAG chunks are injected |
+| **“Thinking / reading N sources” indicator** | ✅ Shipped | Overlay header + bubble show RAG search and source count |
 
 ### 2.3 Context Memory module
 
@@ -261,7 +261,7 @@ User (Windows / macOS)
 | Chat history SQLite | ✅ Shipped | conversations + messages |
 | System prompts SQLite | ✅ Shipped | CRUD + active prompt |
 | **SQLCipher / encrypted local DB** | 🔲 Planned | AES-256 at rest on disk |
-| **Upload queue for cloud sync** | 🔲 Planned | Pending chunks with retry/backoff |
+| **Upload queue for cloud sync** | 🟡 Partial | `memory_sync_state` tracks pending/synced/failed chunks |
 
 ### 3.6 Local embeddings (optional tier)
 
@@ -329,7 +329,8 @@ User (Windows / macOS)
 
 | Feature | Status | Acceptance criteria |
 |---------|--------|-------------------|
-| Inject screen context into system prompt | ✅ Shipped | `buildContextAwareSystemPrompt()` |
+| Inject screen context into system prompt | ✅ Shipped | `buildContextAwarePrompt()` |
+| **Source citations in chat UI** | ✅ Shipped | `SourceCitations` + `ContextSourceCitation` on messages |
 | BM25 keyword ranking over local chunks | ✅ Shipped | Recency bonus + min score filter |
 | 24h retrieval window | ✅ Shipped | `getRecentContext()` |
 | **Vector semantic search** | 🔲 Planned | pgvector or Pinecone |
@@ -378,7 +379,8 @@ User (Windows / macOS)
 | Sync system prompts | 🟡 Partial | Appwrite |
 | Sync user settings | 🟡 Partial | Appwrite |
 | Sync screenshots to cloud storage | 🟡 Partial | Appwrite bucket |
-| **Sync context chunks → `memory_items`** | 🔲 Planned | Batch upload; dedup; conflict handling |
+| **Sync context chunks → `memory_items`** | 🟡 Partial | Opt-in batch upload + AES-GCM encryption + local queue |
+| **Upload queue for cloud sync** | 🟡 Partial | `memory_sync_state` SQLite table + retry |
 | **Supabase cutover** (`VITE_BACKEND_PROVIDER=supabase`) | 🟡 Partial | Abstraction layer done; migration in progress |
 | Backend provider abstraction | ✅ Shipped | `src/lib/backend/` |
 
@@ -466,28 +468,29 @@ User (Windows / macOS)
 
 1. **Context capture quality** — Cursor/VS Code full text (a11y mode + view-line extraction)  
 2. **Supabase auth production-ready** — valid project, redirect URLs, migration applied  
-3. **Source citations in chat** — show which chunks were used  
-4. **Context indicator in overlay** — user trust signal  
+3. ~~**Source citations in chat**~~ — ✅ shipped  
+4. ~~**Context indicator in overlay**~~ — ✅ shipped  
+5. ~~**RAG status indicator**~~ — ✅ shipped (“Reading screen” → “N sources”)  
 
 ### Phase B — Cloud second brain
 
-5. **Upload local chunks → `memory_items`** — encrypted batch sync  
-6. **User exclusion lists** — apps + domains in settings  
-7. **Granular data deletion** — time-scoped purge  
-8. **Complete Supabase cutover** — retire Appwrite or dual-run with flag  
+6. ~~**Upload local chunks → `memory_items`**~~ — 🟡 partial (opt-in sync, encryption, queue; needs Supabase URL)
+7. **User exclusion lists** — apps + domains in settings  
+8. **Granular data deletion** — time-scoped purge  
+9. **Complete Supabase cutover** — retire Appwrite or dual-run with flag  
 
 ### Phase C — Differentiation
 
-9. **Local or cloud embeddings + vector search** — replace/supplement BM25  
-10. **Meeting Notes module** — detection + diarization + structured summary  
-11. **macOS screen observer** — platform parity  
+10. **Local or cloud embeddings + vector search** — replace/supplement BM25  
+11. **Meeting Notes module** — detection + diarization + structured summary  
+12. **macOS screen observer** — platform parity  
 
 ### Phase D — Expansion
 
-12. **Routines** — scheduled proactive digests  
-13. **First integration** — Google Calendar or Gmail  
-14. **SQLCipher local DB** — encrypted at rest  
-15. **System tray + global pause**  
+13. **Routines** — scheduled proactive digests  
+14. **First integration** — Google Calendar or Gmail  
+15. **SQLCipher local DB** — encrypted at rest  
+16. **System tray + global pause**  
 
 ---
 
@@ -523,8 +526,8 @@ Everything in Phases C–D is **v1.1+**, not blocking v1.
 
 ## Related documents
 
-- [`littlebird_architecture.md`](../littlebird_architecture.md) — reference architecture  
-- [`ARCHITECTURE.md`](../ARCHITECTURE.md) — Torvi implementation architecture (Context Memory v0.5+)  
+- [`littlebird_architecture.md`](./littlebird_architecture.md) — reference architecture  
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — Torvi implementation architecture (Context Memory v0.5+)  
 - [`supabase-schema-plan.md`](./supabase-schema-plan.md) — cloud schema for `memory_items`  
 - [`supabase-migration-report.md`](./supabase-migration-report.md) — Appwrite → Supabase migration status  
 - [`README.md`](../README.md) — full shipped feature catalog (may include routes not in current router)

@@ -182,3 +182,11 @@ export async function deleteMemorySource(id: string): Promise<void> {
   if (!isSupabaseProvider()) return;
   return supabase.deleteMemorySource(id);
 }
+
+export async function findMemoryByContentHash(
+  userId: string,
+  contentHash: string
+): Promise<MemoryItem | null> {
+  if (!isSupabaseProvider()) return null;
+  return supabase.findMemoryByContentHash(userId, contentHash);
+}

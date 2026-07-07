@@ -9,6 +9,7 @@ import type {
   CreateMemorySourceInput,
 } from "../../types";
 import { getSupabaseClient, isSupabaseConfigured } from "./client";
+import { formatSupabaseError } from "./errors";
 import { loadResponseSettings } from "@/lib/storage/response-settings.storage";
 import { loadSelectedModel } from "@/lib/storage/ai-providers";
 import { STORAGE_KEYS, DEFAULT_SYSTEM_PROMPT } from "@/config/constants";
@@ -312,7 +313,25 @@ export async function createMemoryItem(
     .select("*")
     .single();
 
+  if (error) throw new Error(formatSupabaseError(error));
+  return mapMemoryItem(data as MemoryItemRow);
+}
+
+export async function findMemoryByContentHash(
+  userId: string,
+  contentHash: string
+): Promise<MemoryItem | null> {
+  if (!isSupabaseConfigured()) return null;
+  const { data, error } = await getSupabaseClient()
+    .from("memory_items")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("content_hash", contentHash)
+    .is("deleted_at", null)
+    .maybeSingle();
+
   if (error) throw error;
+  if (!data) return null;
   return mapMemoryItem(data as MemoryItemRow);
 }
 

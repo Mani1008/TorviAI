@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router";
 import { PageLayout } from "@/layouts";
 import { Markdown } from "@/components/Markdown";
+import { SourceCitations } from "@/components/SourceCitations";
 import { Empty } from "@/components/Empty";
 import type { ChatConversation } from "@/types/completion";
 import { getConversationById } from "@/lib/database";
@@ -46,7 +47,12 @@ export default function ChatView() {
                 }`}
               >
                 {msg.role === "assistant" ? (
-                  <Markdown content={msg.content} />
+                  <>
+                    <Markdown content={msg.content} />
+                    {msg.sources && msg.sources.length > 0 && (
+                      <SourceCitations sources={msg.sources} variant="dashboard" />
+                    )}
+                  </>
                 ) : (
                   <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                 )}

@@ -49,6 +49,8 @@ fn otp_regex() -> &'static Regex {
 pub struct PrivacyFilter {
     /// App executable names (lowercase) that must never be captured.
     blocked_apps: HashSet<String>,
+    /// Window-title / URL fragments for internal architecture docs (lowercase).
+    blocked_doc_fragments: Vec<String>,
 }
 
 impl PrivacyFilter {
@@ -87,7 +89,50 @@ impl PrivacyFilter {
         .map(|s| s.to_string())
         .collect();
 
-        Self { blocked_apps }
+        // Internal architecture / roadmap docs — never pollute context memory.
+        // Keep in sync with src/lib/context-memory/exclusions.ts
+        let blocked_doc_fragments: Vec<String> = [
+            "company-brain.html",
+            "company-brain.md",
+            "architecture.html",
+            "context-memory.html",
+            "context-memory.md",
+            "littlebird_architecture",
+            "architecture.md",
+            "desktop-app-features-roadmap.md",
+            "supabase-schema-plan.md",
+            "supabase-migration-report.md",
+            "context-memory-architecture-review.md",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        Self {
+            blocked_apps,
+            blocked_doc_fragments,
+        }
+    }
+
+    fn is_architecture_doc(&self, ctx: &WindowContext) -> bool {
+        let title = ctx.window_title.to_lowercase();
+        let url = ctx.url.as_deref().unwrap_or("").to_lowercase();
+        let combined = format!("{title} {url}");
+
+        if self
+            .blocked_doc_fragments
+            .iter()
+            .any(|frag| combined.contains(frag.as_str()))
+        {
+            return true;
+        }
+
+        // Static architecture HTML served from docs/ (e.g. vite dev server).
+        if url.contains("/docs/") && url.ends_with(".html") {
+            return true;
+        }
+
+        false
     }
 
     /// Returns `false` for contexts that should never be captured:
@@ -102,6 +147,10 @@ impl PrivacyFilter {
             .iter()
             .any(|b| app_lower.contains(b.as_str()))
         {
+            return false;
+        }
+
+        if self.is_architecture_doc(ctx) {
             return false;
         }
 

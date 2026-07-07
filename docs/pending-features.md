@@ -103,7 +103,7 @@ A full production build has not been verified with the real env vars. Needs to c
 ### 8. Context indicator in pill bar
 **File:** `src/pages/app/index.tsx`
 
-Show which app is currently being read by the context watcher in the pill-bar window. Already designed in `context-memory.md`:
+Show which app is currently being read by the context watcher in the pill-bar window. Already designed in `docs/context-memory.md`:
 
 ```ts
 listen("context-captured", e => setActiveContext(e.payload.app_name))

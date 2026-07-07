@@ -3,6 +3,8 @@ import { useLocation } from "react-router";
 import { useCompletion } from "@/hooks/useCompletion";
 import { useHistory } from "@/hooks/useHistory";
 import { Markdown } from "@/components/Markdown";
+import { SourceCitations } from "@/components/SourceCitations";
+import { RagStatusIndicator } from "@/components/RagStatusIndicator";
 import { getConversationById } from "@/lib/database";
 import type { ChatConversation, ChatMessage } from "@/types/completion";
 import {
@@ -11,21 +13,6 @@ import {
   ArrowUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// ─── ThinkingDots ─────────────────────────────────────────────────────────────
-function ThinkingDots() {
-  return (
-    <div className="flex items-center gap-1 py-1">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="inline-block h-1.5 w-1.5 rounded-full bg-foreground/30 animate-bounce"
-          style={{ animationDelay: `${i * 0.15}s` }}
-        />
-      ))}
-    </div>
-  );
-}
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 function MessageBubble({ msg }: { msg: ChatMessage }) {
@@ -43,7 +30,12 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         {isUser ? (
           <p className="whitespace-pre-wrap">{msg.content as string}</p>
         ) : (
-          <Markdown content={msg.content as string} />
+          <>
+            <Markdown content={msg.content as string} />
+            {msg.sources && msg.sources.length > 0 && (
+              <SourceCitations sources={msg.sources} variant="dashboard" />
+            )}
+          </>
         )}
       </div>
     </div>
@@ -60,6 +52,8 @@ export default function Chats() {
   const {
     messages: liveMessages,
     isLoading,
+    ragPhase,
+    ragSourceCount,
     error,
     sendMessage,
     abort,
@@ -187,16 +181,27 @@ export default function Chats() {
 
           {/* Messages */}
           <div className="space-y-4 max-w-3xl mx-auto">
-            {displayMessages.map((msg) => (
-              <MessageBubble key={msg.id} msg={msg} />
-            ))}
-            {isLoading && mode === "new" && (
-              <div className="flex justify-start">
-                <div className="rounded-2xl rounded-bl-sm bg-neutral-100 px-4 py-2.5">
-                  <ThinkingDots />
-                </div>
-              </div>
-            )}
+            {displayMessages.map((msg) => {
+              if (
+                mode === "new" &&
+                isLoading &&
+                msg.role === "assistant" &&
+                !msg.content
+              ) {
+                return (
+                  <div key={msg.id} className="flex justify-start">
+                    <div className="rounded-2xl rounded-bl-sm bg-neutral-100 px-4 py-2.5">
+                      <RagStatusIndicator
+                        phase={ragPhase}
+                        sourceCount={ragSourceCount}
+                        variant="dashboard"
+                      />
+                    </div>
+                  </div>
+                );
+              }
+              return <MessageBubble key={msg.id} msg={msg} />;
+            })}
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 max-w-3xl mx-auto">
                 {error}

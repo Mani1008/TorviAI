@@ -8,6 +8,10 @@ import { loadResponseSettings } from "@/lib/storage/response-settings.storage";
 import { saveSelectedModel } from "@/lib/storage/ai-providers";
 import { DEFAULT_MODEL_ID, OPENROUTER_MODELS } from "@/config/models.constants";
 import { safeLocalStorage } from "@/lib/storage/helper";
+import {
+  loadMemorySyncSettings,
+  syncContextChunksToCloud,
+} from "@/lib/memory-sync";
 
 /**
  * Startup sync for Supabase provider.
@@ -90,6 +94,19 @@ export async function runSupabaseStartupSync(): Promise<void> {
     console.log("[Supabase Sync] Settings pushed");
   } catch (e) {
     console.warn("[Supabase Sync] Settings push failed:", e);
+  }
+
+  if (loadMemorySyncSettings().enabled) {
+    try {
+      const result = await syncContextChunksToCloud({ limit: 50 });
+      if (result.synced > 0 || result.failed > 0) {
+        console.log(
+          `[Supabase Sync] Cloud memory: ${result.synced} synced, ${result.failed} failed`
+        );
+      }
+    } catch (e) {
+      console.warn("[Supabase Sync] Cloud memory upload failed:", e);
+    }
   }
 
   console.log("[Supabase Sync] Complete");

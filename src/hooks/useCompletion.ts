@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { ChatMessage, Message } from "@/types/completion";
-import { streamAIFromConfig, buildContextAwareSystemPrompt } from "@/lib/functions/ai-response.function";
+import type { RagPhase } from "@/components/RagStatusIndicator";
+import { streamAIFromConfig, buildContextAwarePrompt } from "@/lib/functions/ai-response.function";
 import { useAppContext } from "@/contexts/app.context";
 import {
   createConversation,
@@ -31,6 +32,8 @@ export function useCompletion() {
   const { systemPrompt } = useAppContext();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [ragPhase, setRagPhase] = useState<RagPhase>("idle");
+  const [ragSourceCount, setRagSourceCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const conversationIdRef = useRef<string | null>(null);
@@ -70,6 +73,8 @@ export function useCompletion() {
       };
       setMessages((prev) => [...prev, userMessage]);
       setIsLoading(true);
+      setRagPhase("searching");
+      setRagSourceCount(0);
 
       // Save user message to database
       if (conversationIdRef.current) {
@@ -103,6 +108,7 @@ export function useCompletion() {
         role: "assistant",
         content: "",
         timestamp: Date.now(),
+        sources: [],
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
@@ -111,13 +117,22 @@ export function useCompletion() {
       abortControllerRef.current = controller;
 
       // Augment the system prompt with recent screen context (RAG).
-      // Pass the full apiMessages history so keyword extraction spans the last
-      // 3 user turns — not just the current message.
-      const augmentedSystemPrompt = await buildContextAwareSystemPrompt(
+      const { systemPrompt: augmentedSystemPrompt, sources } = await buildContextAwarePrompt(
         systemPrompt,
         text,
         apiMessages
       );
+      assistantMessage.sources = sources;
+      setRagSourceCount(sources.length);
+      setRagPhase("streaming");
+      setMessages((prev) => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        if (lastMsg?.role === "assistant") {
+          lastMsg.sources = sources;
+        }
+        return updated;
+      });
 
       try {
         for await (const chunk of streamAIFromConfig({
@@ -132,6 +147,7 @@ export function useCompletion() {
             const lastMsg = updated[updated.length - 1];
             if (lastMsg && lastMsg.role === "assistant") {
               lastMsg.content = assistantMessage.content;
+              lastMsg.sources = assistantMessage.sources;
             }
             return updated;
           });
@@ -164,6 +180,8 @@ export function useCompletion() {
         }
       } finally {
         setIsLoading(false);
+        setRagPhase("idle");
+        setRagSourceCount(0);
         abortControllerRef.current = null;
 
         // Save completed assistant message to database
@@ -197,6 +215,8 @@ export function useCompletion() {
   const clearMessages = useCallback(() => {
     setMessages([]);
     setError(null);
+    setRagPhase("idle");
+    setRagSourceCount(0);
     conversationIdRef.current = null;
   }, []);
 
@@ -207,6 +227,8 @@ export function useCompletion() {
   return {
     messages,
     isLoading,
+    ragPhase,
+    ragSourceCount,
     error,
     sendMessage,
     abort,

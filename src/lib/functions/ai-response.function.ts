@@ -1,8 +1,14 @@
-import type { Message } from "@/types/completion";
+import type { Message, ContextSourceCitation } from "@/types/completion";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { loadSelectedModel } from "@/lib/storage/ai-providers";
-import { getRecentContext } from "@/lib/database/context-store";
+import { getRecentContext, type ContextChunk } from "@/lib/database/context-store";
+import { filterArchitectureCaptures } from "@/lib/context-memory/exclusions";
+
+export interface ContextAwarePromptResult {
+  systemPrompt: string;
+  sources: ContextSourceCitation[];
+}
 
 interface StreamAIFromConfigParams {
   messages: Message[];
@@ -236,90 +242,96 @@ function truncateAtLineBoundary(text: string, limit: number): string {
     : slice + "…";
 }
 
+/** Max characters shown in citation snippet previews. */
+const CITATION_SNIPPET_CHARS = 160;
+
+function chunkToCitation(chunk: ContextChunk, snippetLimit = CITATION_SNIPPET_CHARS): ContextSourceCitation {
+  const raw = chunk.text_content.trim().replace(/\s+/g, " ");
+  const snippet =
+    raw.length <= snippetLimit ? raw : `${raw.slice(0, snippetLimit).trimEnd()}…`;
+  return {
+    chunkId: chunk.id,
+    appName: chunk.app_name,
+    windowTitle: chunk.window_title,
+    contentType: chunk.content_type,
+    url: chunk.url,
+    capturedAt: chunk.captured_at,
+    snippet,
+  };
+}
+
 /**
- * Augment the system prompt with the most relevant screen context captured by
- * the UIAutomation watcher.
- *
- * Pipeline:
- *   1. Over-fetch 2× the chunk cap from the DB (newest first, last 30 min).
- *   2. Tokenise every chunk and build a BM25 corpus (IDF statistics).
- *   3. Tokenise the query: current message + last 3 user turns.
- *   4. Score each chunk: BM25(query, chunk) + RECENCY_BONUS if captured < 5 min ago.
- *   5. Filter: keep if score ≥ BM25_MIN_SCORE (recency bonus lets fresh chunks pass).
- *   6. Sort descending by score.
- *   7. Per-app dedup: keep only the highest-scored chunk per app_name.
- *   8. Cap at RAG_MAX_CHUNKS.
- *   9. Truncate each chunk to RAG_CHUNK_CHAR_LIMIT at a line boundary.
- *  10. Inject as a structured "## Current Screen Context" block.
- *
- * Non-fatal: any DB failure silently returns the original systemPrompt.
- *
- * @param systemPrompt    Base system prompt to augment.
- * @param currentMessage  The message the user just typed.
- * @param history         Prior conversation messages (newest last).
- *                        Only user-role turns contribute to query extraction.
+ * Rank and select context chunks for RAG injection.
+ * Returns the final chunk list used in the prompt (empty if none qualify).
  */
-export async function buildContextAwareSystemPrompt(
+async function selectContextChunks(
+  currentMessage: string,
+  history: { role: string; content: string | unknown }[]
+): Promise<ContextChunk[]> {
+  const chunks = filterArchitectureCaptures(
+    await getRecentContext(RAG_MAX_CHUNKS * 2, 30)
+  );
+  if (chunks.length === 0) return [];
+
+  const tokenisedDocs = chunks.map((c) => tokenise(c.text_content));
+  const corpus = buildCorpus(tokenisedDocs);
+
+  const queryText = [
+    currentMessage,
+    ...history
+      .filter((m) => m.role === "user")
+      .slice(-3)
+      .map((m) => (typeof m.content === "string" ? m.content : "")),
+  ].join(" ");
+
+  const queryTerms = [...new Set(tokenise(queryText))];
+  const nowSecs = Math.floor(Date.now() / 1000);
+
+  const scored = chunks
+    .map((chunk, i) => {
+      const isFresh = chunk.captured_at >= nowSecs - RECENCY_FRESH_SECS;
+      const score =
+        bm25Score(queryTerms, tokenisedDocs[i], corpus) +
+        (isFresh ? RECENCY_BONUS : 0);
+      return { chunk, score };
+    })
+    .filter(({ score }) => score >= BM25_MIN_SCORE);
+
+  if (scored.length === 0) return [];
+
+  scored.sort((a, b) => b.score - a.score);
+
+  const seenApps = new Set<string>();
+  const dedupedChunks = scored
+    .filter(({ chunk }) => {
+      const count = [...seenApps].filter((k) => k === chunk.app_name).length;
+      if (count >= RAG_MAX_CHUNKS_PER_APP) return false;
+      seenApps.add(chunk.app_name);
+      return true;
+    })
+    .map(({ chunk }) => chunk);
+
+  return dedupedChunks.slice(0, RAG_MAX_CHUNKS);
+}
+
+/**
+ * Augment the system prompt with ranked screen context and return citation metadata.
+ *
+ * Non-fatal: any DB failure returns the original systemPrompt and empty sources.
+ */
+export async function buildContextAwarePrompt(
   systemPrompt: string,
   currentMessage: string = "",
   history: { role: string; content: string | unknown }[] = []
-): Promise<string> {
+): Promise<ContextAwarePromptResult> {
   try {
-    // Step 1 — over-fetch.
-    const chunks = await getRecentContext(RAG_MAX_CHUNKS * 2, 30);
-    if (chunks.length === 0) return systemPrompt;
+    const finalChunks = await selectContextChunks(currentMessage, history);
+    if (finalChunks.length === 0) {
+      return { systemPrompt, sources: [] };
+    }
 
-    // Step 2 — tokenise corpus and compute IDF statistics.
-    const tokenisedDocs = chunks.map((c) => tokenise(c.text_content));
-    const corpus = buildCorpus(tokenisedDocs);
+    const sources = finalChunks.map((c) => chunkToCitation(c));
 
-    // Step 3 — build query token set from current message + last 3 user turns.
-    const queryText = [
-      currentMessage,
-      ...history
-        .filter((m) => m.role === "user")
-        .slice(-3)
-        .map((m) => (typeof m.content === "string" ? m.content : "")),
-    ].join(" ");
-
-    // Unique query terms only — avoids double-weighting repeated words.
-    const queryTerms = [...new Set(tokenise(queryText))];
-
-    const nowSecs = Math.floor(Date.now() / 1000);
-
-    // Steps 4 & 5 — score and filter.
-    const scored = chunks
-      .map((chunk, i) => {
-        const isFresh = chunk.captured_at >= nowSecs - RECENCY_FRESH_SECS;
-        const score =
-          bm25Score(queryTerms, tokenisedDocs[i], corpus) +
-          (isFresh ? RECENCY_BONUS : 0);
-        return { chunk, score };
-      })
-      .filter(({ score }) => score >= BM25_MIN_SCORE);
-
-    if (scored.length === 0) return systemPrompt;
-
-    // Step 6 — sort best-first.
-    scored.sort((a, b) => b.score - a.score);
-
-    // Step 7 — per-app dedup: retain highest-scored chunk per app_name.
-    // Because the array is already sorted, the first occurrence per app is
-    // always the best-ranked one.
-    const seenApps = new Set<string>();
-    const dedupedChunks = scored
-      .filter(({ chunk }) => {
-        const count = [...seenApps].filter((k) => k === chunk.app_name).length;
-        if (count >= RAG_MAX_CHUNKS_PER_APP) return false;
-        seenApps.add(chunk.app_name);
-        return true;
-      })
-      .map(({ chunk }) => chunk);
-
-    // Step 8 — hard cap.
-    const finalChunks = dedupedChunks.slice(0, RAG_MAX_CHUNKS);
-
-    // Steps 9 & 10 — truncate and inject.
     const contextBlock = finalChunks
       .map((c) => {
         const meta = [c.app_name, c.window_title, c.url].filter(Boolean).join(" • ");
@@ -328,16 +340,30 @@ export async function buildContextAwareSystemPrompt(
       })
       .join("\n\n---\n\n");
 
-    return (
+    const augmented =
       systemPrompt +
       `\n\n## Current Screen Context\n` +
       `The user currently has the following content open on their screen:\n\n` +
       contextBlock +
       `\n\nReference this context when it is relevant to the user's question. ` +
-      `If it is not relevant, ignore it.`
-    );
+      `If it is not relevant, ignore it.`;
+
+    return { systemPrompt: augmented, sources };
   } catch {
-    // Context fetch failure is non-fatal — proceed without RAG injection.
-    return systemPrompt;
+    return { systemPrompt, sources: [] };
   }
+}
+
+/** @deprecated Use buildContextAwarePrompt for sources; kept for callers that only need the string. */
+export async function buildContextAwareSystemPrompt(
+  systemPrompt: string,
+  currentMessage: string = "",
+  history: { role: string; content: string | unknown }[] = []
+): Promise<string> {
+  const { systemPrompt: augmented } = await buildContextAwarePrompt(
+    systemPrompt,
+    currentMessage,
+    history
+  );
+  return augmented;
 }

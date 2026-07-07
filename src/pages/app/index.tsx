@@ -1,6 +1,10 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { TextInput } from "@/components/TextInput";
 import { Markdown } from "@/components/Markdown";
+import { SourceCitations } from "@/components/SourceCitations";
+import { ContextIndicator } from "@/components/ContextIndicator";
+import { RagStatusIndicator, ragStatusChipLabel } from "@/components/RagStatusIndicator";
+import { getRecentContext, type AppContextSnapshot } from "@/lib/database/context-store";
 import { useCompletion } from "@/hooks/useCompletion";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { useSystemAudio } from "@/hooks/useSystemAudio";
@@ -85,17 +89,6 @@ function sk(id: string): string {
   );
 }
 
-// ─── Thinking indicator ───────────────────────────────────────────────────────
-function ThinkingDots() {
-  return (
-    <div className="flex items-center gap-1 py-0.5">
-      <span className="dot dot-1" />
-      <span className="dot dot-2" />
-      <span className="dot dot-3" />
-    </div>
-  );
-}
-
 // ─── Status chip ──────────────────────────────────────────────────────────────
 function StatusChip({ label, pulse = false }: { label: string; pulse?: boolean }) {
   return (
@@ -122,7 +115,7 @@ const CONTEXT_SUGGESTIONS: Record<string, string[]> = {
 
 export default function App() {
   useTransparentWindow();
-  const { messages, isLoading, error, sendMessage, abort, clearMessages, clearError } =
+  const { messages, isLoading, ragPhase, ragSourceCount, error, sendMessage, abort, clearMessages, clearError } =
     useCompletion();
   const { isListening: isMicListening, transcript, stop: stopListening, toggle: toggleMic } = useSpeechToText();
   const {
@@ -157,6 +150,13 @@ export default function App() {
   const [suggestionChips, setSuggestionChips] = useState<string[] | null>(null);
   const prevAppNameRef = useRef<string | null>(null);
   const suggestionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Live context focus — what app/file the watcher last saw (toolbar indicator).
+  const [contextFocus, setContextFocus] = useState<{
+    appName: string;
+    windowTitle: string;
+  } | null>(null);
+  const [contextWatching, setContextWatching] = useState(true);
 
   // Collapsed = floating Torvi icon. Expanded = full pill bar visible.
   // Persisted so the user's last preference survives restarts.
@@ -261,17 +261,20 @@ export default function App() {
   // Resize window height — only while the pill bar is visible (not collapsed or collapsing).
   // Width and x-position are handled by collapse_pill_to_icon / expand_pill_from_icon.
   const hasSuggestions = !isExpanded && !!suggestionChips?.length;
+  const showContextStrip = !isExpanded && !isPillCollapsed && !isCollapsing;
   useEffect(() => {
     if (isPillCollapsed || isCollapsing) return;
     import("@tauri-apps/api/core").then(({ invoke }) => {
       let height = 44;
       if (isExpanded) height = 600;
-      else if (showIntensity) height = 110;
-      else if (tooltipHovered) height = 88;
+      else if (showIntensity) height = showContextStrip ? 132 : 110;
+      else if (tooltipHovered) height = showContextStrip ? 110 : 88;
+      else if (hasSuggestions && showContextStrip) height = 104;
       else if (hasSuggestions) height = 82;
+      else if (showContextStrip) height = 66;
       invoke("set_window_height", { height }).catch(() => {});
     });
-  }, [isExpanded, showIntensity, tooltipHovered, isPillCollapsed, isCollapsing, hasSuggestions]);
+  }, [isExpanded, showIntensity, tooltipHovered, isPillCollapsed, isCollapsing, hasSuggestions, showContextStrip]);
 
   // Animate the pill bar closed, shrink the Tauri window, then show the icon.
   const startCollapse = useCallback(() => {
@@ -418,14 +421,60 @@ export default function App() {
     return () => { unlisten?.(); };
   }, [handleScreenAnalysis]);
 
+  // Bootstrap context indicator from SQLite + sync watcher pause state.
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    const syncWatcher = () => {
+      const paused = localStorage.getItem("ctx_watcher_paused") === "1";
+      if (paused) {
+        setContextWatching(false);
+        return;
+      }
+      import("@tauri-apps/api/core").then(({ invoke }) => {
+        invoke<string>("get_watcher_status")
+          .then((s) => setContextWatching(s === "running"))
+          .catch(() => setContextWatching(true));
+      });
+    };
+
+    getRecentContext(1, 24 * 60)
+      .then((chunks) => {
+        if (chunks[0]) {
+          setContextFocus({
+            appName: chunks[0].app_name,
+            windowTitle: chunks[0].window_title,
+          });
+        }
+      })
+      .catch(() => {});
+
+    syncWatcher();
+    const interval = setInterval(syncWatcher, 3000);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "ctx_watcher_paused") syncWatcher();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
   // Listen for context-captured events from the context watcher.
-  // Shows a subtle "reading: <app>" indicator and proactive suggestion chips
-  // whenever the user switches to a new app or file.
+  // Updates the toolbar indicator and proactive suggestion chips.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     import("@tauri-apps/api/event").then(({ listen }) => {
-      listen<{ app_name: string; content_type: string }>("context-captured", (e) => {
-        const { app_name, content_type } = e.payload;
+      listen<AppContextSnapshot>("context-captured", (e) => {
+        const { app_name, window_title, content_type } = e.payload;
+
+        if (app_name) {
+          setContextFocus({
+            appName: app_name,
+            windowTitle: window_title ?? "",
+          });
+        }
 
         // Show suggestion chips when switching to a new app/file
         if (app_name && app_name !== prevAppNameRef.current) {
@@ -718,6 +767,16 @@ export default function App() {
         </div>
       </div>
 
+      {/* Context focus strip — what Torvi is currently observing */}
+      {showContextStrip && (
+        <ContextIndicator
+          isWatching={contextWatching}
+          appName={contextFocus?.appName}
+          windowTitle={contextFocus?.windowTitle}
+          onClick={openDashboard}
+        />
+      )}
+
       {/* ══════════════ SUGGESTION CHIPS ══════════════ */}
       {/* Appear when context switches to a new app/file; auto-dismiss after 30 s */}
       {hasSuggestions && (
@@ -769,7 +828,10 @@ export default function App() {
           >
             <div className="flex items-center gap-2">
               {isLoading ? (
-                <StatusChip label="Generating" pulse />
+                <StatusChip
+                  label={ragStatusChipLabel(ragPhase, ragSourceCount)}
+                  pulse
+                />
               ) : isSttProcessing ? (
                 <StatusChip label="Transcribing" pulse />
               ) : capturing ? (
@@ -890,11 +952,24 @@ export default function App() {
                       }}
                     >
                       {slides[currentSlide].assistant.content ? (
-                        <div className="glass-prose">
-                          <Markdown content={slides[currentSlide].assistant.content} />
-                        </div>
+                        <>
+                          <div className="glass-prose">
+                            <Markdown content={slides[currentSlide].assistant.content} />
+                          </div>
+                          {slides[currentSlide].assistant.sources &&
+                            slides[currentSlide].assistant.sources.length > 0 && (
+                              <SourceCitations
+                                sources={slides[currentSlide].assistant.sources}
+                                variant="overlay"
+                              />
+                            )}
+                        </>
                       ) : (
-                        <ThinkingDots />
+                        <RagStatusIndicator
+                          phase={ragPhase}
+                          sourceCount={ragSourceCount}
+                          variant="overlay"
+                        />
                       )}
                     </div>
                   </div>
@@ -913,7 +988,11 @@ export default function App() {
                       border: "1px solid rgba(255,255,255,0.07)",
                     }}
                   >
-                    <ThinkingDots />
+                    <RagStatusIndicator
+                      phase={ragPhase}
+                      sourceCount={ragSourceCount}
+                      variant="overlay"
+                    />
                   </div>
                 </div>
               </div>
