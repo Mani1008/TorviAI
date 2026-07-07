@@ -135,11 +135,59 @@ impl PrivacyFilter {
         false
     }
 
+    fn is_torvi_own_ui(&self, ctx: &WindowContext) -> bool {
+        let title = ctx.window_title.to_lowercase();
+        let url = ctx.url.as_deref().unwrap_or("").to_lowercase();
+
+        if title.contains("ai assistant - dashboard") || title.contains("ai assistant - torvi") {
+            return true;
+        }
+
+        const TORVI_HOSTS: &[&str] = &["localhost:1420", "127.0.0.1:1420"];
+        const TORVI_ROUTES: &[&str] = &[
+            "/context-memory",
+            "/dashboard",
+            "/settings",
+            "/chats",
+            "/billing",
+            "/shortcuts",
+            "/screenshot",
+            "/responses",
+            "/gate",
+            "/dev/supabase-test",
+        ];
+
+        if TORVI_HOSTS.iter().any(|h| url.contains(h))
+            && TORVI_ROUTES.iter().any(|r| url.contains(r))
+        {
+            return true;
+        }
+
+        let body = ctx.text_content.to_lowercase();
+        const UI_MARKERS: &[&str] = &[
+            "live feed of what the ai is observing from your screen",
+            "cloud second brain",
+            "how context memory works",
+            "opt-in upload of local context chunks",
+            "captured this session",
+            "new chat",
+            "context active",
+        ];
+        let hits = UI_MARKERS.iter().filter(|m| body.contains(**m)).count();
+        hits >= 3
+    }
+
     /// Returns `false` for contexts that should never be captured:
     /// - App is on the block-list
     /// - Browser is in private / incognito mode (detected via window title)
     pub fn should_capture(&self, ctx: &WindowContext) -> bool {
         let app_lower = ctx.app_name.to_lowercase();
+        let title_lower = ctx.window_title.to_lowercase();
+
+        // Tauri dashboard webview (WebView2) — process name is msedgewebview2, not ai-assistant.
+        if app_lower.contains("msedgewebview2") && title_lower.contains("ai assistant") {
+            return false;
+        }
 
         // Check app block-list (substring match so "keepassxc" matches "keepass")
         if self
@@ -151,6 +199,10 @@ impl PrivacyFilter {
         }
 
         if self.is_architecture_doc(ctx) {
+            return false;
+        }
+
+        if self.is_torvi_own_ui(ctx) {
             return false;
         }
 

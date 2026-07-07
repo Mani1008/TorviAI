@@ -1,7 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { TextInput } from "@/components/TextInput";
 import { Markdown } from "@/components/Markdown";
-import { SourceCitations } from "@/components/SourceCitations";
 import { ContextIndicator } from "@/components/ContextIndicator";
 import { RagStatusIndicator, ragStatusChipLabel } from "@/components/RagStatusIndicator";
 import { getRecentContext, type AppContextSnapshot } from "@/lib/database/context-store";
@@ -115,7 +114,7 @@ const CONTEXT_SUGGESTIONS: Record<string, string[]> = {
 
 export default function App() {
   useTransparentWindow();
-  const { messages, isLoading, ragPhase, ragSourceCount, error, sendMessage, abort, clearMessages, clearError } =
+  const { messages, isLoading, ragPhase, error, sendMessage, abort, clearMessages, clearError } =
     useCompletion();
   const { isListening: isMicListening, transcript, stop: stopListening, toggle: toggleMic } = useSpeechToText();
   const {
@@ -828,10 +827,7 @@ export default function App() {
           >
             <div className="flex items-center gap-2">
               {isLoading ? (
-                <StatusChip
-                  label={ragStatusChipLabel(ragPhase, ragSourceCount)}
-                  pulse
-                />
+                <StatusChip label={ragStatusChipLabel(ragPhase)} pulse />
               ) : isSttProcessing ? (
                 <StatusChip label="Transcribing" pulse />
               ) : capturing ? (
@@ -952,22 +948,12 @@ export default function App() {
                       }}
                     >
                       {slides[currentSlide].assistant.content ? (
-                        <>
-                          <div className="glass-prose">
-                            <Markdown content={slides[currentSlide].assistant.content} />
-                          </div>
-                          {slides[currentSlide].assistant.sources &&
-                            slides[currentSlide].assistant.sources.length > 0 && (
-                              <SourceCitations
-                                sources={slides[currentSlide].assistant.sources}
-                                variant="overlay"
-                              />
-                            )}
-                        </>
+                        <div className="glass-prose">
+                          <Markdown content={slides[currentSlide].assistant.content} />
+                        </div>
                       ) : (
                         <RagStatusIndicator
                           phase={ragPhase}
-                          sourceCount={ragSourceCount}
                           variant="overlay"
                         />
                       )}
@@ -990,7 +976,6 @@ export default function App() {
                   >
                     <RagStatusIndicator
                       phase={ragPhase}
-                      sourceCount={ragSourceCount}
                       variant="overlay"
                     />
                   </div>

@@ -4,7 +4,6 @@ export type RagPhase = "idle" | "searching" | "streaming";
 
 export interface RagStatusIndicatorProps {
   phase: RagPhase;
-  sourceCount?: number;
   variant?: "overlay" | "dashboard";
   showDots?: boolean;
   className?: string;
@@ -39,7 +38,6 @@ function ThinkingDots({ variant }: { variant: "overlay" | "dashboard" }) {
  */
 export function RagStatusIndicator({
   phase,
-  sourceCount = 0,
   variant = "overlay",
   showDots = true,
   className,
@@ -54,8 +52,6 @@ export function RagStatusIndicator({
   let label: string | null = null;
   if (phase === "searching") {
     label = "Reading your screen…";
-  } else if (sourceCount > 0) {
-    label = `Using ${sourceCount} source${sourceCount !== 1 ? "s" : ""} from your screen`;
   } else if (phase === "streaming") {
     label = "Generating…";
   }
@@ -71,10 +67,7 @@ export function RagStatusIndicator({
 }
 
 /** Compact chip label for overlay panel header. */
-export function ragStatusChipLabel(phase: RagPhase, sourceCount: number): string {
+export function ragStatusChipLabel(phase: RagPhase): string {
   if (phase === "searching") return "Reading screen";
-  if (phase === "streaming" && sourceCount > 0) {
-    return `Generating · ${sourceCount} source${sourceCount !== 1 ? "s" : ""}`;
-  }
   return "Generating";
 }

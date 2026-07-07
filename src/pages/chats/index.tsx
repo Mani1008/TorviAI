@@ -3,7 +3,6 @@ import { useLocation } from "react-router";
 import { useCompletion } from "@/hooks/useCompletion";
 import { useHistory } from "@/hooks/useHistory";
 import { Markdown } from "@/components/Markdown";
-import { SourceCitations } from "@/components/SourceCitations";
 import { RagStatusIndicator } from "@/components/RagStatusIndicator";
 import { getConversationById } from "@/lib/database";
 import type { ChatConversation, ChatMessage } from "@/types/completion";
@@ -30,12 +29,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         {isUser ? (
           <p className="whitespace-pre-wrap">{msg.content as string}</p>
         ) : (
-          <>
-            <Markdown content={msg.content as string} />
-            {msg.sources && msg.sources.length > 0 && (
-              <SourceCitations sources={msg.sources} variant="dashboard" />
-            )}
-          </>
+          <Markdown content={msg.content as string} />
         )}
       </div>
     </div>
@@ -53,7 +47,6 @@ export default function Chats() {
     messages: liveMessages,
     isLoading,
     ragPhase,
-    ragSourceCount,
     error,
     sendMessage,
     abort,
@@ -193,7 +186,6 @@ export default function Chats() {
                     <div className="rounded-2xl rounded-bl-sm bg-neutral-100 px-4 py-2.5">
                       <RagStatusIndicator
                         phase={ragPhase}
-                        sourceCount={ragSourceCount}
                         variant="dashboard"
                       />
                     </div>

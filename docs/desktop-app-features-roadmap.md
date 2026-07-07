@@ -135,7 +135,7 @@ User (Windows / macOS)
 | Keep-engaged conversation mode | ✅ Shipped | Toggle includes prior turns in prompt |
 | Message history popover | ✅ Shipped | View thread in overlay |
 | **Context indicator** (“watching Cursor · doc.md”) | ✅ Shipped | Slim strip below overlay pill; live updates from `context-captured` |
-| **Source citations in responses** | ✅ Shipped | Expandable cards: app, window title, timestamp, excerpt |
+| **Source citations in responses** | 🟡 Partial | RAG still runs; citation cards hidden from chat UI |
 | Quick actions: Insert / Copy / Open in Chat | 🟡 Partial | Copy exists; insert into other apps not built |
 
 ### 2.2 Chat module (dashboard)
