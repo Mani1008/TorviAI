@@ -11,7 +11,7 @@
  *   4. Auth → OAuth2 → enable Google (add Google Cloud OAuth client ID + secret)
  *
  * Usage:
- *   APPWRITE_ENDPOINT=https://sgp.cloud.appwrite.io/v1 \
+ *   APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1 \
  *   APPWRITE_PROJECT_ID=your_project_id \
  *   APPWRITE_API_SECRET=your_api_key \
  *   node scripts/provision-appwrite.mjs
@@ -25,7 +25,7 @@ const DATABASE_ID = process.env.APPWRITE_DATABASE_ID || "torvi_db";
 if (!ENDPOINT || !PROJECT_ID || !API_KEY) {
   console.error(`
 Missing required environment variables:
-  APPWRITE_ENDPOINT      e.g. https://sgp.cloud.appwrite.io/v1
+  APPWRITE_ENDPOINT      e.g. https://cloud.appwrite.io/v1
   APPWRITE_PROJECT_ID    from Appwrite Console → Project Settings
   APPWRITE_API_SECRET    server API key (NOT the client SDK key)
 

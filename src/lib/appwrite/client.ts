@@ -6,11 +6,12 @@ import { Client, Account, Databases, Storage } from "appwrite";
 // permissions: every collection MUST use Role.user($userId) for read/write so
 // that users can only access their own documents. Never use Role.any() on
 // collections that contain user data.
-// Torvi Second Brain — defaults match Appwrite project "Torvi Second Brain"
+//
+// No production project ID / regional endpoint is hardcoded — set them in `.env`
+// (see `.env.example`). Hardcoding would publish your cloud project to every fork.
 const ENDPOINT =
-  import.meta.env.VITE_APPWRITE_ENDPOINT || "https://sgp.cloud.appwrite.io/v1";
-const PROJECT_ID =
-  import.meta.env.VITE_APPWRITE_PROJECT_ID || "6a2848bb002900d602b5";
+  import.meta.env.VITE_APPWRITE_ENDPOINT || "https://cloud.appwrite.io/v1";
+const PROJECT_ID = import.meta.env.VITE_APPWRITE_PROJECT_ID || "";
 
 export const DATABASE_ID = import.meta.env.VITE_APPWRITE_DATABASE_ID || "";
 

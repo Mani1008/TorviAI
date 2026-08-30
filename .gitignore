@@ -4,11 +4,23 @@ node_modules/
 # Build outputs
 dist/
 src-tauri/target/
+src-tauri/gen/
 
-# Environment variables (contains API keys)
+# Environment / secrets — NEVER commit real keys
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
+*.pem
+*.p12
+*.pfx
+*.key
+id_rsa
+id_rsa.pub
+credentials.json
+**/service-account*.json
+**/google-credentials*.json
 
 # IDE
 .vscode/
@@ -19,7 +31,18 @@ src-tauri/target/
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
 
-# Logs
+# Logs / local DBs / caches
 *.log
 npm-debug.log*
+*.sqlite
+*.sqlite-journal
+*.db
+*.db-wal
+*.db-shm
+
+# Local Tauri / signing material
+*.sig
+*.minisign
+tauri-private.key
