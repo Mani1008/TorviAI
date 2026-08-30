@@ -8,6 +8,7 @@ import { router } from "@/routes";
 import { initDatabase, initSystemPromptsTable } from "@/lib/database";
 import { initContextStore, pruneOldContext } from "@/lib/database/context-store";
 import { initMemorySyncState, scheduleMemoryChunkSync } from "@/lib/memory-sync";
+import { applyCaptureExclusionsToBackend } from "@/lib/storage/capture-exclusions.storage";
 import { listen } from "@tauri-apps/api/event";
 import { initSessionTracking } from "@/lib/storage/usage";
 import { isTauri } from "@/lib/platform";
@@ -41,6 +42,11 @@ if (isTauri()) {
   // IMPORTANT: Only start the watcher in the 'main' pill-bar window.  The
   // 'dashboard' window loads the same main.tsx and would otherwise attempt to
   // start a second watcher instance.
+  // Push saved exclusions to Rust before the watcher starts (any window).
+  applyCaptureExclusionsToBackend().catch((e: unknown) =>
+    console.warn("[CaptureExclusions] Could not apply:", e)
+  );
+
   const currentWindowLabel = getCurrentWindow().label;
   if (currentWindowLabel === "main") {
     invoke("start_context_watcher").catch((e: unknown) =>

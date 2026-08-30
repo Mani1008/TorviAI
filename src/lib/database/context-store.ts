@@ -127,6 +127,62 @@ export async function initContextStore(): Promise<void> {
   await conn.execute(
     `CREATE INDEX IF NOT EXISTS idx_ctx_parent ON context_chunks(parent_capture_id)`
   );
+
+  // ── Company Brain knowledge tables (mirror Rust ensure_schema) ─────────────
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS knowledge_entities (
+      id                 TEXT    PRIMARY KEY,
+      kind               TEXT    NOT NULL,
+      title              TEXT    NOT NULL,
+      body               TEXT    NOT NULL,
+      status             TEXT    NOT NULL DEFAULT 'draft',
+      version            INTEGER NOT NULL DEFAULT 1,
+      created_at         INTEGER NOT NULL,
+      updated_at         INTEGER NOT NULL,
+      last_confirmed_at  INTEGER
+    )
+  `);
+  await conn.execute(
+    `CREATE INDEX IF NOT EXISTS idx_knowledge_entities_status ON knowledge_entities(status)`
+  );
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS skills (
+      id          TEXT    PRIMARY KEY,
+      slug        TEXT    NOT NULL,
+      title       TEXT    NOT NULL,
+      yaml_body   TEXT    NOT NULL,
+      status      TEXT    NOT NULL DEFAULT 'draft',
+      version     INTEGER NOT NULL DEFAULT 1,
+      entity_id   TEXT,
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL,
+      last_confirmed_at INTEGER
+    )
+  `);
+  await conn.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_slug ON skills(slug)`);
+  await conn.execute(`CREATE INDEX IF NOT EXISTS idx_skills_status ON skills(status)`);
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS knowledge_sources (
+      id                  TEXT PRIMARY KEY,
+      target_kind         TEXT NOT NULL,
+      target_id           TEXT NOT NULL,
+      source_type         TEXT NOT NULL,
+      ref_id              TEXT NOT NULL,
+      snippet             TEXT NOT NULL DEFAULT ''
+    )
+  `);
+  await conn.execute(
+    `CREATE INDEX IF NOT EXISTS idx_knowledge_sources_target ON knowledge_sources(target_kind, target_id)`
+  );
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS ingest_sync_state (
+      provider       TEXT PRIMARY KEY,
+      last_sync_at   INTEGER,
+      last_status    TEXT NOT NULL DEFAULT 'idle',
+      last_error     TEXT,
+      items_synced   INTEGER NOT NULL DEFAULT 0
+    )
+  `);
 }
 
 // ─── Chunking engine ──────────────────────────────────────────────────────────

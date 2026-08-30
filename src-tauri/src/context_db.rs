@@ -132,7 +132,133 @@ impl ContextDb {
         .await
         .ok();
 
+        // ── Integrations (OAuth provider tokens — local-only, DPAPI blobs) ────
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS integrations (
+                id               TEXT    PRIMARY KEY,
+                provider         TEXT    NOT NULL,
+                account_email    TEXT,
+                scopes           TEXT    NOT NULL,
+                access_token     BLOB    NOT NULL,
+                refresh_token    BLOB,
+                token_expires_at INTEGER,
+                status           TEXT    NOT NULL DEFAULT 'connected',
+                connected_at     INTEGER NOT NULL,
+                updated_at       INTEGER NOT NULL
+            )",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| format!("CREATE TABLE integrations: {e}"))?;
+
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_provider \
+             ON integrations(provider)",
+        )
+        .execute(pool)
+        .await
+        .ok();
+
+        // ── Company Brain: structured knowledge (policies / processes / skills) ─
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS knowledge_entities (
+                id                 TEXT    PRIMARY KEY,
+                kind               TEXT    NOT NULL,
+                title              TEXT    NOT NULL,
+                body               TEXT    NOT NULL,
+                status             TEXT    NOT NULL DEFAULT 'draft',
+                version            INTEGER NOT NULL DEFAULT 1,
+                created_at         INTEGER NOT NULL,
+                updated_at         INTEGER NOT NULL,
+                last_confirmed_at  INTEGER
+            )",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| format!("CREATE TABLE knowledge_entities: {e}"))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_knowledge_entities_status \
+             ON knowledge_entities(status)",
+        )
+        .execute(pool)
+        .await
+        .ok();
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS skills (
+                id          TEXT    PRIMARY KEY,
+                slug        TEXT    NOT NULL,
+                title       TEXT    NOT NULL,
+                yaml_body   TEXT    NOT NULL,
+                status      TEXT    NOT NULL DEFAULT 'draft',
+                version     INTEGER NOT NULL DEFAULT 1,
+                entity_id   TEXT,
+                created_at  INTEGER NOT NULL,
+                updated_at  INTEGER NOT NULL,
+                last_confirmed_at INTEGER
+            )",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| format!("CREATE TABLE skills: {e}"))?;
+
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_slug ON skills(slug)",
+        )
+        .execute(pool)
+        .await
+        .ok();
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_skills_status ON skills(status)",
+        )
+        .execute(pool)
+        .await
+        .ok();
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS knowledge_sources (
+                id                  TEXT PRIMARY KEY,
+                target_kind         TEXT NOT NULL,
+                target_id           TEXT NOT NULL,
+                source_type         TEXT NOT NULL,
+                ref_id              TEXT NOT NULL,
+                snippet             TEXT NOT NULL DEFAULT ''
+            )",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| format!("CREATE TABLE knowledge_sources: {e}"))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_knowledge_sources_target \
+             ON knowledge_sources(target_kind, target_id)",
+        )
+        .execute(pool)
+        .await
+        .ok();
+
+        // Sync metadata for connector ingest (Gmail, …)
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS ingest_sync_state (
+                provider       TEXT PRIMARY KEY,
+                last_sync_at   INTEGER,
+                last_status    TEXT NOT NULL DEFAULT 'idle',
+                last_error     TEXT,
+                items_synced   INTEGER NOT NULL DEFAULT 0
+            )",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| format!("CREATE TABLE ingest_sync_state: {e}"))?;
+
         Ok(())
+    }
+
+    /// Borrow the underlying pool (integrations token store, etc.).
+    pub(crate) fn pool(&self) -> &SqlitePool {
+        &self.pool
     }
 
     // ─── Write ────────────────────────────────────────────────────────────────
@@ -241,6 +367,55 @@ impl ContextDb {
         saved
     }
 
+    /// Insert a single context chunk (used by connector ingest). Dedups by hash
+    /// within the last 7 days.
+    pub async fn insert_chunk(
+        &self,
+        app_name: &str,
+        window_title: &str,
+        content_type: &str,
+        text_content: &str,
+        content_hash: &str,
+        captured_at: i64,
+        url: Option<&str>,
+    ) -> Result<bool, String> {
+        let cutoff = captured_at - 7 * 24 * 3600;
+        let exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM context_chunks \
+             WHERE content_hash = ? AND captured_at > ?",
+        )
+        .bind(content_hash)
+        .bind(cutoff)
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(0);
+
+        if exists > 0 {
+            return Ok(false);
+        }
+
+        let id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO context_chunks \
+             (id, app_name, window_title, content_type, text_content, content_hash, \
+              captured_at, url, parent_capture_id, chunk_index) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)",
+        )
+        .bind(&id)
+        .bind(app_name)
+        .bind(window_title)
+        .bind(content_type)
+        .bind(text_content)
+        .bind(content_hash)
+        .bind(captured_at)
+        .bind(url)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("insert_chunk: {e}"))?;
+
+        Ok(true)
+    }
+
     /// Delete every row from `context_chunks`.
     /// Called by the "Delete Data" flow — stops the watcher before this runs.
     pub async fn clear_all(&self) -> Result<(), String> {
@@ -251,6 +426,73 @@ impl ContextDb {
         log::info!("[ContextDB] All context chunks deleted.");
         Ok(())
     }
+
+    /// Distinct apps seen in captures — process name + a recent window title.
+    pub async fn distinct_apps(&self) -> Result<Vec<(String, String)>, String> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT app_name, window_title FROM context_chunks \
+             WHERE app_name != '' \
+             GROUP BY app_name \
+             ORDER BY MAX(captured_at) DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("distinct_apps: {e}"))?;
+        Ok(rows)
+    }
+
+    /// Distinct website hosts from captured URLs.
+    pub async fn distinct_website_hosts(&self) -> Result<Vec<(String, Option<String>)>, String> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT url, window_title FROM context_chunks \
+             WHERE url IS NOT NULL AND url != '' \
+             ORDER BY captured_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("distinct_website_hosts: {e}"))?;
+
+        let mut hosts: std::collections::HashMap<String, Option<String>> =
+            std::collections::HashMap::new();
+
+        for (url, title) in rows {
+            let host = extract_host(&url);
+            if host.is_empty() {
+                continue;
+            }
+            hosts.entry(host).or_insert_with(|| {
+                if title.trim().is_empty() {
+                    None
+                } else {
+                    Some(title)
+                }
+            });
+        }
+
+        let mut websites: Vec<_> = hosts.into_iter().collect();
+        websites.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(websites)
+    }
+}
+
+fn extract_host(url: &str) -> String {
+    let mut value = url.trim().to_lowercase();
+    if let Some(rest) = value.strip_prefix("https://") {
+        value = rest.to_string();
+    } else if let Some(rest) = value.strip_prefix("http://") {
+        value = rest.to_string();
+    }
+    if let Some(rest) = value.strip_prefix("www.") {
+        value = rest.to_string();
+    }
+    value
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_string()
 }
 
 // ─── Chunking helper ──────────────────────────────────────────────────────────

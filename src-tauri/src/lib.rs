@@ -6,6 +6,10 @@ mod app_context;
 mod auth;
 mod capture;
 mod context_db;
+mod installed_apps;
+mod app_icon;
+mod integrations;
+mod knowledge;
 mod privacy_filter;
 mod screen_reader;
 mod shortcuts;
@@ -29,6 +33,9 @@ pub fn run() {
         .manage(capture::CaptureCooldown::default())
         .manage(window::AuthState::default())
         .manage(app_context::AppContextState::default())
+        .manage(privacy_filter::PrivacyFilterState::default())
+        .manage(app_icon::IconCache::default())
+        .manage(integrations::commands::OAuthInFlight::default())
         // --- Plugins ---
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -63,6 +70,9 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 window::create_gate_hidden(gate_handle).await.ok();
             });
+
+            // Keep Gmail/Calendar access tokens fresh (DPAPI-local store)
+            integrations::refresh::start_token_refresh_loop(app.handle().clone());
 
             // Register global shortcut: Ctrl+Shift+H → smart toggle overlay
             // Hidden → show pill bar | Visible+unfocused → focus | Visible+focused → collapse to icon
@@ -191,6 +201,26 @@ pub fn run() {
             app_context::stop_context_watcher,
             app_context::get_watcher_status,
             app_context::clear_context_data,
+            privacy_filter::set_capture_exclusions,
+            installed_apps::list_capturable_apps,
+            installed_apps::list_capturable_websites,
+            app_icon::get_app_icon,
+            // Integrations (Gmail / Calendar OAuth)
+            integrations::commands::list_integrations,
+            integrations::commands::list_available_providers,
+            integrations::commands::start_oauth_connect,
+            integrations::commands::disconnect_integration,
+            integrations::commands::sync_gmail_now,
+            integrations::commands::get_gmail_sync_status,
+            // Company Brain knowledge layer
+            knowledge::commands::list_knowledge_entities,
+            knowledge::commands::list_skills,
+            knowledge::commands::list_confirmed_skills,
+            knowledge::commands::save_knowledge_entity,
+            knowledge::commands::save_skill,
+            knowledge::commands::set_knowledge_entity_status,
+            knowledge::commands::set_skill_status,
+            knowledge::commands::export_confirmed_knowledge,
             // Shortcut commands
             shortcuts::update_shortcuts,
             shortcuts::get_registered_shortcuts,

@@ -17,7 +17,7 @@ import {
   markChunkFailed,
   markChunkSynced,
 } from "./sync-state";
-import { isExcludedArchitectureCapture } from "@/lib/context-memory/exclusions";
+import { isExcludedCapture } from "@/lib/context-memory/exclusions";
 import { loadMemorySyncSettings, saveMemorySyncSettings } from "./settings.storage";
 
 export type MemorySyncSkipReason =
@@ -102,7 +102,7 @@ export async function syncContextChunksToCloud(options?: {
   const chunks = await getUnsyncedChunks(batchSize);
 
   for (const chunk of chunks) {
-    if (isExcludedArchitectureCapture(chunk)) {
+    if (isExcludedCapture(chunk)) {
       await markChunkSynced(chunk.id, "excluded-arch-doc").catch(console.warn);
       result.skipped++;
       continue;

@@ -1,4 +1,9 @@
 import type { ContextChunk } from "@/lib/database/context-store";
+import type { CaptureExclusions } from "@/types/settings";
+import {
+  loadCaptureExclusions,
+  normalizeBlockedApp,
+} from "@/lib/storage/capture-exclusions.storage";
 
 /**
  * Internal architecture / product-doc filenames and URL fragments.
@@ -118,6 +123,63 @@ export function isExcludedArchitectureCapture(
   return isTorviOwnUi(chunk) || isArchitectureDoc(chunk);
 }
 
+function hostFromUrl(url: string): string {
+  let value = url.trim().toLowerCase();
+  value = value.replace(/^https?:\/\//, "");
+  value = value.replace(/^www\./, "");
+  return (value.split("/")[0] ?? "").split(":")[0] ?? "";
+}
+
+/** True when the chunk matches a user-defined app or domain blocklist entry. */
+export function isUserExcludedCapture(
+  chunk: Pick<ContextChunk, "window_title" | "url" | "text_content" | "app_name">,
+  exclusions: CaptureExclusions = loadCaptureExclusions()
+): boolean {
+  const app = normalizeBlockedApp(chunk.app_name ?? "");
+  if (
+    app &&
+    exclusions.blockedApps.some(
+      (blocked) => app.includes(blocked) || blocked.includes(app)
+    )
+  ) {
+    return true;
+  }
+
+  const url = chunk.url ?? "";
+  if (url) {
+    const host = hostFromUrl(url);
+    if (
+      host &&
+      exclusions.blockedDomains.some(
+        (domain) => host === domain || host.endsWith(`.${domain}`)
+      )
+    ) {
+      return true;
+    }
+  }
+
+  const title = (chunk.window_title ?? "").toLowerCase();
+  if (
+    exclusions.blockedDomains.some((domain) => title.includes(domain))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/** True when a capture should be hidden from memory, RAG, and cloud sync. */
+export function isExcludedCapture(
+  chunk: Pick<ContextChunk, "window_title" | "url" | "text_content" | "app_name">
+): boolean {
+  return isExcludedArchitectureCapture(chunk) || isUserExcludedCapture(chunk);
+}
+
+export function filterExcludedCaptures<T extends ContextChunk>(chunks: T[]): T[] {
+  return chunks.filter((c) => !isExcludedCapture(c));
+}
+
+/** @deprecated Use filterExcludedCaptures */
 export function filterArchitectureCaptures<T extends ContextChunk>(chunks: T[]): T[] {
-  return chunks.filter((c) => !isExcludedArchitectureCapture(c));
+  return filterExcludedCaptures(chunks);
 }

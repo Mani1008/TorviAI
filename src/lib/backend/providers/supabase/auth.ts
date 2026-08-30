@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { UserProfile } from "@/types/settings";
 import type { BackendUser } from "../../types";
-import { getSupabaseClient, isSupabaseConfigured } from "./client";
+import {
+  createOAuthClient,
+  getSupabaseClient,
+  isSupabaseConfigured,
+} from "./client";
 import { upsertProfile, fetchPlan } from "./database";
 
 function toBackendUser(user: {
@@ -30,8 +34,12 @@ export async function getCurrentUser(): Promise<BackendUser | null> {
 }
 
 /**
- * Build Google OAuth URL for the Tauri local callback server (PKCE).
- * Opens in system browser via gate — exchange code with `exchangeOAuthCode`.
+ * Build Google OAuth URL for the Tauri local callback server.
+ *
+ * Uses implicit flow so tokens arrive in the URL hash at
+ * `http://127.0.0.1:{port}/callback` — PKCE flow-state breaks when the
+ * authorize page runs in the system browser instead of the WebView
+ * (`Error loading flow state` → redirect to Site URL / localhost:1420).
  */
 export async function signInWithGoogle(
   callbackPort: number,
@@ -39,9 +47,9 @@ export async function signInWithGoogle(
 ): Promise<string> {
   const redirectTo =
     `http://127.0.0.1:${callbackPort}/callback` +
-    `?provider=supabase&state=${encodeURIComponent(state)}`;
+    `?state=${encodeURIComponent(state)}`;
 
-  const { data, error } = await getSupabaseClient().auth.signInWithOAuth({
+  const { data, error } = await createOAuthClient().auth.signInWithOAuth({
     provider: "google",
     options: {
       redirectTo,

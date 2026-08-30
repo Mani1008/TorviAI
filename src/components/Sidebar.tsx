@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router";
+import { NavLink, useNavigate, useLocation } from "react-router";
 import {
   MessageSquare,
   Settings,
@@ -7,6 +7,7 @@ import {
   SlidersHorizontal,
   CreditCard,
   Brain,
+  Sparkles,
   Plus,
   LayoutDashboard,
   Crown,
@@ -34,6 +35,7 @@ interface SidebarProps {
 const primaryNav = [
   { to: "/dashboard",      icon: LayoutDashboard, label: "Dashboard" },
   { to: "/context-memory", icon: Brain,           label: "Context Memory" },
+  { to: "/skills",         icon: Sparkles,        label: "Skills & Policies" },
 ];
 
 const toolsNav = [
@@ -273,6 +275,7 @@ export function Sidebar(_props?: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const { conversations, hasMorePages, isLoadingMore, loadMore, setSearch } = useHistory();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Poll context watcher status every 3 s
   useEffect(() => {
@@ -432,9 +435,42 @@ export function Sidebar(_props?: SidebarProps) {
 
       {/* Bottom: settings + context status + user card */}
       <div className="shrink-0 border-t border-border/60 px-3 py-2 space-y-0.5">
-        {bottomNav.map((item) => (
-          <NavItem key={item.to} {...item} />
-        ))}
+        {bottomNav.map((item) => {
+          if (item.to === "/settings") {
+            const from =
+              location.pathname.startsWith("/settings") ? "/dashboard" : location.pathname;
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                state={{ from }}
+                className={({ isActive }) =>
+                  cn(
+                    "group flex items-center gap-2 rounded-md px-2.5 text-[13px] transition-all duration-150 py-1.5",
+                    isActive
+                      ? "bg-neutral-200/70 text-foreground font-medium"
+                      : "text-foreground/55 hover:bg-neutral-200/50 hover:text-foreground/80"
+                  )
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <item.icon
+                      className={cn(
+                        "h-[14px] w-[14px] shrink-0",
+                        isActive
+                          ? "text-primary"
+                          : "text-foreground/35 group-hover:text-foreground/55"
+                      )}
+                    />
+                    <span className="leading-none truncate">{item.label}</span>
+                  </>
+                )}
+              </NavLink>
+            );
+          }
+          return <NavItem key={item.to} {...item} />;
+        })}
 
         {/* Context status toggle */}
         <button
@@ -509,7 +545,9 @@ export function Sidebar(_props?: SidebarProps) {
           onClose={() => setContextPanelOpen(false)}
           onManage={() => {
             setContextPanelOpen(false);
-            navigate("/settings");
+            navigate("/settings?section=privacy", {
+              state: { from: location.pathname },
+            });
           }}
           onDataDeleted={() => setWatcherStatus("stopped")}
         />

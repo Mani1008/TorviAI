@@ -3,9 +3,12 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
 
+/** Fixed OAuth callback port — must match Rust `OAUTH_CALLBACK_PORT` and Supabase Redirect URLs. */
+export const SUPABASE_OAUTH_CALLBACK_PORT = 18427;
+
 let _client: SupabaseClient | null = null;
 
-/** Singleton Supabase client (anon key — RLS enforced). */
+/** Singleton Supabase client (anon key — RLS enforced). Sessions use PKCE storage. */
 export function getSupabaseClient(): SupabaseClient {
   if (!_client) {
     if (!isSupabaseConfigured()) {
@@ -21,6 +24,27 @@ export function getSupabaseClient(): SupabaseClient {
     });
   }
   return _client;
+}
+
+/**
+ * One-shot client for system-browser Google OAuth.
+ *
+ * Desktop apps open the authorize URL in Chrome/Edge, so PKCE flow-state
+ * cookies never round-trip correctly and Supabase returns
+ * `Error loading flow state` on Site URL. Implicit + hash bridge avoids that.
+ */
+export function createOAuthClient(): SupabaseClient {
+  if (!isSupabaseConfigured()) {
+    throw new Error("Supabase is not configured");
+  }
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      flowType: "implicit",
+    },
+  });
 }
 
 export function isSupabaseConfigured(): boolean {

@@ -332,6 +332,7 @@ pub async fn expand_pill_from_icon(
 #[tauri::command]
 pub async fn open_dashboard(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("dashboard") {
+        let _ = window.set_size(tauri::LogicalSize::new(1280.0, 840.0));
         window.show().map_err(|e: tauri::Error| e.to_string())?;
         window.set_focus().map_err(|e: tauri::Error| e.to_string())?;
         return Ok(());
@@ -340,8 +341,8 @@ pub async fn open_dashboard(app: AppHandle) -> Result<(), String> {
     let url = WebviewUrl::App("/dashboard".into());
     let builder = tauri::WebviewWindowBuilder::new(&app, "dashboard", url)
         .title("AI Assistant - Dashboard")
-        .inner_size(960.0, 700.0)
-        .min_inner_size(720.0, 520.0)
+        .inner_size(1280.0, 840.0)
+        .min_inner_size(1000.0, 620.0)
         .center()
         .visible(false)
         .decorations(false)

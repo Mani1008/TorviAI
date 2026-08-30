@@ -65,3 +65,11 @@ export interface ResponseSettings {
   /** Language for responses (e.g., "English", "Spanish") */
   language: string;
 }
+
+/** User-defined apps and domains to exclude from screen capture. */
+export interface CaptureExclusions {
+  /** Process / app name fragments (lowercase), e.g. "chrome", "slack". */
+  blockedApps: string[];
+  /** Hostname fragments (lowercase), e.g. "gmail.com", "linkedin.com". */
+  blockedDomains: string[];
+}

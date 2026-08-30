@@ -198,7 +198,7 @@ User (Windows / macOS)
 | Billing & plans | ✅ Shipped | `/billing` Starter / Plus / Pro |
 | System prompts management | 🟡 Partial | Page exists; verify route in router |
 | Onboarding (permissions + trust) | 🔲 Planned | Accessibility, mic, what we can/can’t see |
-| Integration connections UI | 🔲 Planned | OAuth connect / revoke per service |
+| Integration connections UI | 🟡 Partial | Settings → Integrations: Gmail + Calendar OAuth; RAG ingest not yet |
 | Privacy: pause capture globally | 🟡 Partial | Context Memory pause; global toggle in settings |
 | Theme + transparency | ✅ Shipped | Dark/light; overlay glass effect |
 
@@ -227,8 +227,8 @@ User (Windows / macOS)
 | Block Torvi’s own windows | ✅ Shipped | Prevents circular capture |
 | Skip incognito / private browsing | ✅ Shipped | Title heuristics |
 | Redact credit cards, SSN, API keys, OTP | ✅ Shipped | Regex redaction |
-| User blocklist (apps) | 🔲 Planned | Configurable in settings |
-| User blocklist (domains) | 🔲 Planned | Configurable in settings |
+| User blocklist (apps) | ✅ Shipped | Settings → Capture exclusions |
+| User blocklist (domains) | ✅ Shipped | Settings → Capture exclusions |
 | Pause when screen locked | 🔲 Planned | OS lock state detection |
 
 ### 3.3 Text extraction & cleaning
@@ -406,8 +406,8 @@ User (Windows / macOS)
 
 | Integration | Status | Data to ingest |
 |-------------|--------|----------------|
-| Google Calendar | 🔲 Planned | Events, attendees, descriptions |
-| Gmail (read-only) | 🔲 Planned | Threads, subjects, bodies |
+| Google Calendar | 🟡 Partial | OAuth + DPAPI tokens + refresh; **ingest not started** |
+| Gmail (read-only) | 🟡 Partial | OAuth + DPAPI tokens + refresh; **ingest not started** |
 | Google Drive (read-only) | 🔲 Planned | Doc text where API allows |
 
 ### 8.2 Phase 2 integrations
@@ -423,12 +423,25 @@ User (Windows / macOS)
 
 | Feature | Status | Acceptance criteria |
 |---------|--------|-------------------|
-| OAuth connect / revoke UI | 🔲 Planned | Per integration in settings |
-| Token storage (encrypted) | 🔲 Planned | Vault or Supabase secrets — not plaintext |
+| OAuth connect / revoke UI | ✅ Shipped | Settings → Integrations; PKCE loopback + CSRF `state` |
+| Token storage (encrypted) | ✅ Shipped | DPAPI BLOBs in local `integrations` SQLite table |
+| Background token refresh | ✅ Shipped | ~60s loop; missing/failed refresh → `expired` + reconnect UI |
 | Delta sync workers | 🔲 Planned | Cursor-based; no full re-fetch |
 | Canonical chunk format | 🔲 Planned | Same schema as screen captures |
 | Revoke → delete integration-sourced data | 🔲 Planned | GDPR-style cleanup |
 | Deep write actions (with confirmation) | ⏸️ Deferred | Create calendar event, send email, etc. |
+
+### 8.4 Milestone 1 E2E checklist (OAuth only)
+
+1. Set `GOOGLE_INTEGRATIONS_CLIENT_ID` / `SECRET` in `.env` (Desktop OAuth client; Gmail + Calendar APIs enabled).
+2. Connect Gmail → consent → Settings shows Connected with email.
+3. Quit and restart → still Connected (DPAPI + SQLite persistence).
+4. Re-connect the same account → still works (`access_type=offline` + `prompt=consent`).
+5. Double-click Connect → only one OAuth flow (prior loopback cancelled).
+6. Disconnect → row removed; reconnect works again.
+7. First-run Windows: confirm `127.0.0.1` loopback bind does not surprise with a firewall dialog (document if it does).
+
+Release packaging: bake client id/secret at compile time — see `.env.example` (runtime `.env` will not exist on user machines).
 
 ---
 
@@ -475,7 +488,7 @@ User (Windows / macOS)
 ### Phase B — Cloud second brain
 
 6. ~~**Upload local chunks → `memory_items`**~~ — 🟡 partial (opt-in sync, encryption, queue; needs Supabase URL)
-7. **User exclusion lists** — apps + domains in settings  
+7. ~~**User exclusion lists**~~ — ✅ shipped (apps + domains in Settings)
 8. **Granular data deletion** — time-scoped purge  
 9. **Complete Supabase cutover** — retire Appwrite or dual-run with flag  
 

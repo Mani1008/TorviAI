@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Outlet } from "react-router";
+import { Outlet, useLocation } from "react-router";
 import { Sidebar } from "@/components/Sidebar";
 import { Onboarding, isOnboarded } from "@/components/Onboarding";
 import { Updater } from "@/components/Updater";
+import Dashboard from "@/pages/dashboard";
 import { isTauri } from "@/lib/platform";
 import { loadUserProfile } from "@/lib/storage/auth";
 import { X, Minus, Maximize2, Minimize2 } from "lucide-react";
@@ -88,6 +89,8 @@ function TitleBar() {
 
 export function DashboardLayout() {
   const [showOnboarding, setShowOnboarding] = useState(() => !isOnboarded());
+  const location = useLocation();
+  const isSettingsOpen = location.pathname.startsWith("/settings");
 
   useEffect(() => {
     if (!loadUserProfile() && isTauri()) {
@@ -108,7 +111,15 @@ export function DashboardLayout() {
       {/* Sidebar + main content below the titlebar */}
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-hidden">
+        <main className="relative flex-1 overflow-hidden">
+          {isSettingsOpen && (
+            <div
+              aria-hidden
+              className="absolute inset-0 overflow-hidden pointer-events-none select-none"
+            >
+              <Dashboard />
+            </div>
+          )}
           <Outlet />
         </main>
       </div>

@@ -3,7 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { loadSelectedModel } from "@/lib/storage/ai-providers";
 import { getRecentContext, type ContextChunk } from "@/lib/database/context-store";
-import { filterArchitectureCaptures } from "@/lib/context-memory/exclusions";
+import { filterExcludedCaptures } from "@/lib/context-memory/exclusions";
+import { listConfirmedSkills, listKnowledgeEntities } from "@/lib/knowledge";
+import type { KnowledgeEntity, Skill } from "@/types/knowledge";
 
 export interface ContextAwarePromptResult {
   systemPrompt: string;
@@ -268,7 +270,7 @@ async function selectContextChunks(
   currentMessage: string,
   history: { role: string; content: string | unknown }[]
 ): Promise<ContextChunk[]> {
-  const chunks = filterArchitectureCaptures(
+  const chunks = filterExcludedCaptures(
     await getRecentContext(RAG_MAX_CHUNKS * 2, 30)
   );
   if (chunks.length === 0) return [];
@@ -315,7 +317,8 @@ async function selectContextChunks(
 }
 
 /**
- * Augment the system prompt with ranked screen context and return citation metadata.
+ * Augment the system prompt with confirmed company-brain skills/policies,
+ * then ranked screen context. Returns citation metadata for UI.
  *
  * Non-fatal: any DB failure returns the original systemPrompt and empty sources.
  */
@@ -325,33 +328,105 @@ export async function buildContextAwarePrompt(
   history: { role: string; content: string | unknown }[] = []
 ): Promise<ContextAwarePromptResult> {
   try {
+    let skillsBlock = "";
+    let policiesBlock = "";
+    const skillSources: ContextSourceCitation[] = [];
+
+    try {
+      const [skills, policies] = await Promise.all([
+        listConfirmedSkills(),
+        listKnowledgeEntities("confirmed"),
+      ]);
+      skillsBlock = formatConfirmedSkills(skills);
+      policiesBlock = formatConfirmedPolicies(policies);
+      for (const skill of skills.slice(0, 8)) {
+        skillSources.push({
+          chunkId: `skill:${skill.id}`,
+          appName: "skill",
+          windowTitle: skill.title,
+          contentType: "skill",
+          url: null,
+          capturedAt: skill.lastConfirmedAt ?? skill.updatedAt,
+          snippet: skill.yamlBody.slice(0, CITATION_SNIPPET_CHARS),
+        });
+      }
+      for (const policy of policies.slice(0, 8)) {
+        skillSources.push({
+          chunkId: `entity:${policy.id}`,
+          appName: policy.kind,
+          windowTitle: policy.title,
+          contentType: policy.kind,
+          url: null,
+          capturedAt: policy.lastConfirmedAt ?? policy.updatedAt,
+          snippet: policy.body.slice(0, CITATION_SNIPPET_CHARS),
+        });
+      }
+    } catch {
+      // Knowledge layer optional — continue with screen RAG only
+    }
+
     const finalChunks = await selectContextChunks(currentMessage, history);
-    if (finalChunks.length === 0) {
+    const sources = [
+      ...skillSources,
+      ...finalChunks.map((c) => chunkToCitation(c)),
+    ];
+
+    if (!skillsBlock && !policiesBlock && finalChunks.length === 0) {
       return { systemPrompt, sources: [] };
     }
 
-    const sources = finalChunks.map((c) => chunkToCitation(c));
+    let augmented = systemPrompt;
 
-    const contextBlock = finalChunks
-      .map((c) => {
-        const meta = [c.app_name, c.window_title, c.url].filter(Boolean).join(" • ");
-        const text = truncateAtLineBoundary(c.text_content, RAG_CHUNK_CHAR_LIMIT);
-        return `[${meta}]\n${text}`;
-      })
-      .join("\n\n---\n\n");
+    if (skillsBlock || policiesBlock) {
+      augmented +=
+        `\n\n## Confirmed Company Brain (support ops)\n` +
+        `These are human-confirmed policies and skills. Prefer them over raw screen/email dumps when answering how the company handles support work.\n\n` +
+        (policiesBlock ? `${policiesBlock}\n\n` : "") +
+        (skillsBlock ? `${skillsBlock}\n` : "");
+    }
 
-    const augmented =
-      systemPrompt +
-      `\n\n## Current Screen Context\n` +
-      `The user currently has the following content open on their screen:\n\n` +
-      contextBlock +
-      `\n\nReference this context when it is relevant to the user's question. ` +
-      `If it is not relevant, ignore it.`;
+    if (finalChunks.length > 0) {
+      const contextBlock = finalChunks
+        .map((c) => {
+          const meta = [c.app_name, c.window_title, c.url].filter(Boolean).join(" • ");
+          const text = truncateAtLineBoundary(c.text_content, RAG_CHUNK_CHAR_LIMIT);
+          return `[${meta}]\n${text}`;
+        })
+        .join("\n\n---\n\n");
+
+      augmented +=
+        `\n\n## Current Screen / Email Context\n` +
+        `Recent captured activity (may include Gmail ingest):\n\n` +
+        contextBlock +
+        `\n\nReference this context when relevant. Prefer confirmed Company Brain skills/policies when they apply.`;
+    }
 
     return { systemPrompt: augmented, sources };
   } catch {
     return { systemPrompt, sources: [] };
   }
+}
+
+function formatConfirmedSkills(skills: Skill[]): string {
+  if (skills.length === 0) return "";
+  return skills
+    .slice(0, 8)
+    .map(
+      (s) =>
+        `### Skill: ${s.title} (${s.slug})\n\`\`\`yaml\n${truncateAtLineBoundary(s.yamlBody, 1500)}\n\`\`\``
+    )
+    .join("\n\n");
+}
+
+function formatConfirmedPolicies(entities: KnowledgeEntity[]): string {
+  if (entities.length === 0) return "";
+  return entities
+    .slice(0, 8)
+    .map(
+      (e) =>
+        `### ${e.kind}: ${e.title}\n${truncateAtLineBoundary(e.body, 800)}`
+    )
+    .join("\n\n");
 }
 
 /** @deprecated Use buildContextAwarePrompt for sources; kept for callers that only need the string. */

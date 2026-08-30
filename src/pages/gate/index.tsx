@@ -218,7 +218,12 @@ export default function Gate() {
         setStatus("idle");
       } catch (err) {
         console.error("[Gate] Auth callback error:", err);
-        setError("Sign-in failed — please try again.");
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(
+          msg.includes("flow state") || msg.includes("redirect")
+            ? "Sign-in failed — check Supabase Redirect URLs include http://127.0.0.1:18427/callback"
+            : "Sign-in failed — please try again."
+        );
         setStatus("idle");
       }
     }).then((fn) => { unlisten = fn; });

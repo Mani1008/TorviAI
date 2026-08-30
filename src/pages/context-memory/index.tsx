@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { PageLayout } from "@/layouts";
 import { getRecentContext, pruneOldContext, type ContextChunk, type AppContextSnapshot } from "@/lib/database/context-store";
-import { filterArchitectureCaptures } from "@/lib/context-memory/exclusions";
+import { filterExcludedCaptures } from "@/lib/context-memory/exclusions";
 import { CloudMemorySyncCard } from "@/components/CloudMemorySyncCard";
 import { Brain, Trash2, RefreshCw, Circle, Pause, Play } from "lucide-react";
 
@@ -64,7 +64,7 @@ export default function ContextMemory() {
     try {
       // Fetch up to 100 chunks from the last 24 hours
       const rows = await getRecentContext(100, 24 * 60);
-      setChunks(filterArchitectureCaptures(rows));
+      setChunks(filterExcludedCaptures(rows));
     } finally {
       setLoading(false);
     }
@@ -258,7 +258,7 @@ export default function ContextMemory() {
   return (
     <PageLayout
       title="Context Memory"
-      description="Live feed of what the AI is observing from your screen"
+      description="Live feed for your company brain — screen captures and synced Gmail that become policies & skills"
       rightSlot={
         <div className="flex items-center gap-2">
           {/* Live indicator */}
@@ -327,6 +327,7 @@ export default function ContextMemory() {
                 Every <strong className="text-foreground">2 seconds</strong> and instantly on every window switch,
                 the watcher reads visible text from your active window using Windows Accessibility APIs (no screenshots).
                 Password managers, lock screen, Remote Desktop, and <strong className="text-foreground">Torvi AI itself</strong> are
+                Torvi docs and your custom app/domain blocklist in Settings are
                 automatically excluded. Captured text is injected into the AI when you ask a question.
               </p>
               <p className="text-muted-foreground text-xs leading-relaxed mt-1">

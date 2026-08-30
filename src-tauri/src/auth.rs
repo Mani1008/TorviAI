@@ -75,6 +75,13 @@ Completing sign-in…</p>
 <script>
 (function() {{
   var q = new URLSearchParams(window.location.search);
+  var err = q.get('error');
+  if (err) {{
+    var desc = q.get('error_description') || err;
+    document.body.innerHTML = '<p style="font-family:system-ui;text-align:center;color:#c00;padding:2rem">' +
+      'Sign-in failed: ' + desc + '<br><br>Add <code>http://127.0.0.1:{port}/callback</code> to Supabase Redirect URLs.</p>';
+    return;
+  }}
   var provider = q.get('provider') || 'supabase';
   var state = q.get('state') || '';
   var hash = window.location.hash ? window.location.hash.substring(1) : '';
@@ -92,7 +99,7 @@ Completing sign-in…</p>
       '&access_token=' + encodeURIComponent(access) +
       '&refresh_token=' + encodeURIComponent(refresh));
   }} else {{
-    document.body.innerHTML = '<p style="font-family:system-ui,sans-serif;text-align:center;color:#c00;padding:2rem">Sign-in tokens not found in callback URL.<br>Close this tab and try again.</p>';
+    document.body.innerHTML = '<p style="font-family:system-ui,sans-serif;text-align:center;color:#c00;padding:2rem">Sign-in tokens not found in callback URL.<br>Close this tab and try again.<br><br>Ensure Supabase Redirect URLs includes:<br><code>http://127.0.0.1:{port}/callback</code></p>';
   }}
 }})();
 </script>
@@ -124,11 +131,16 @@ async fn write_html_response(stream: &mut tokio::net::TcpStream, html: &str) {
     let _ = stream.write_all(response.as_bytes()).await;
 }
 
-/// Starts a temporary local HTTP server on a random port.
+/// Preferred fixed port for OAuth callbacks so Supabase Redirect URLs can be
+/// allowlisted exactly (`http://127.0.0.1:18427/callback`). Falls back to an
+/// ephemeral port if this one is busy.
+const OAUTH_CALLBACK_PORT: u16 = 18427;
+
+/// Starts a temporary local HTTP server for OAuth redirects.
 /// Returns the port number.
 ///
-/// Supports Appwrite (userId+secret), legacy JWT (token), and Supabase (PKCE code
-/// or hash tokens bridged via an intermediate HTML page).
+/// Supports Appwrite (userId+secret), legacy JWT (token), and Supabase
+/// (PKCE code or hash tokens bridged via an intermediate HTML page).
 #[tauri::command]
 pub async fn start_oauth_callback_server(
     app: AppHandle,
@@ -143,14 +155,25 @@ pub async fn start_oauth_callback_server(
         return Err("Not authorized".to_string());
     }
 
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .map_err(|e| format!("Failed to bind OAuth callback port: {}", e))?;
+    let listener = match TcpListener::bind(("127.0.0.1", OAUTH_CALLBACK_PORT)).await {
+        Ok(l) => l,
+        Err(e) => {
+            log::warn!(
+                "[Auth] Port {} busy ({e}) — falling back to ephemeral port",
+                OAUTH_CALLBACK_PORT
+            );
+            TcpListener::bind("127.0.0.1:0")
+                .await
+                .map_err(|e| format!("Failed to bind OAuth callback port: {}", e))?
+        }
+    };
 
     let port = listener
         .local_addr()
         .map_err(|e| e.to_string())?
         .port();
+
+    log::info!("[Auth] OAuth callback server listening on 127.0.0.1:{port}");
 
     let target_label = label;
     tokio::spawn(async move {
@@ -200,6 +223,28 @@ pub async fn start_oauth_callback_server(
             let query = path.find('?').map(|i| &path[i + 1..]).unwrap_or("");
             let params = parse_query_params(query);
 
+            // Supabase error redirect (e.g. flow state / redirect_to allowlist)
+            if let Some(err) = params.get("error") {
+                let desc = params
+                    .get("error_description")
+                    .cloned()
+                    .unwrap_or_else(|| err.clone());
+                log::error!("[Auth] OAuth provider error: {desc}");
+                let html = format!(
+                    r#"<!DOCTYPE html><html><body style="font-family:system-ui;text-align:center;padding:3rem;background:#09090f;color:#fff">
+<h2 style="color:#f87171">Sign-in failed</h2>
+<p style="color:#aaa">{desc}</p>
+<p style="color:#666;font-size:.85rem;margin-top:1.5rem">Check Supabase → Authentication → URL Configuration<br>
+Redirect URLs must include <code>http://127.0.0.1:{port}/callback</code></p>
+<p style="color:#666">Close this tab and try again in Torvi.</p>
+</body></html>"#,
+                    desc = html_escape(&desc),
+                    port = port
+                );
+                write_html_response(&mut stream, &html).await;
+                continue;
+            }
+
             let token = params.get("token").cloned().unwrap_or_default();
             let user_id = params.get("userId").cloned().unwrap_or_default();
             let secret = params.get("secret").cloned().unwrap_or_default();
@@ -223,7 +268,11 @@ pub async fn start_oauth_callback_server(
                     token: token.clone(),
                     user_id: user_id.clone(),
                     secret: secret.clone(),
-                    provider: provider.clone(),
+                    provider: if provider.is_empty() {
+                        "supabase".into()
+                    } else {
+                        provider.clone()
+                    },
                     code: code.clone(),
                     access_token: access_token.clone(),
                     refresh_token: refresh_token.clone(),
@@ -238,19 +287,21 @@ pub async fn start_oauth_callback_server(
                 break;
             }
 
-            // Supabase first hop: tokens live in URL hash — serve JS bridge page
-            if provider == "supabase" && !state.is_empty() {
-                let html = supabase_hash_extractor_html(port);
-                write_html_response(&mut stream, &html).await;
-                continue;
-            }
-
-            write_html_response(&mut stream, success_html()).await;
-            if emitted {
-                break;
-            }
+            // First hop: tokens may live in the URL hash (implicit) or code in
+            // query after JS reads hash — serve the bridge page whenever we
+            // don't yet have credentials.
+            let html = supabase_hash_extractor_html(port);
+            write_html_response(&mut stream, &html).await;
+            // Keep listening for the follow-up request from the bridge script
         }
     });
 
     Ok(port)
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }

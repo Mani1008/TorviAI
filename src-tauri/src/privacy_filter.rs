@@ -6,7 +6,8 @@
 
 use regex::Regex;
 use std::collections::HashSet;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, RwLock};
+use tauri::State;
 
 use crate::screen_reader::WindowContext;
 
@@ -43,14 +44,112 @@ fn otp_regex() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"\b\d{6}\b").unwrap())
 }
 
+// ─── Normalization helpers ───────────────────────────────────────────────────
+
+fn normalize_app(input: &str) -> String {
+    let mut value = input.trim().to_lowercase();
+    if value.ends_with(".exe") {
+        value.truncate(value.len() - 4);
+    }
+    value
+}
+
+fn normalize_domain(input: &str) -> String {
+    let mut value = input.trim().to_lowercase();
+    if let Some(rest) = value.strip_prefix("https://") {
+        value = rest.to_string();
+    } else if let Some(rest) = value.strip_prefix("http://") {
+        value = rest.to_string();
+    }
+    if let Some(rest) = value.strip_prefix("www.") {
+        value = rest.to_string();
+    }
+    value
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
+fn host_from_url(url: &str) -> String {
+    normalize_domain(url)
+}
+
+fn domain_matches(host: &str, domain: &str) -> bool {
+    host == domain || host.ends_with(&format!(".{domain}"))
+}
+
 // ─── PrivacyFilter ────────────────────────────────────────────────────────────
 
-/// Decides whether a captured snapshot should be stored and redacts PII from text.
-pub struct PrivacyFilter {
+struct PrivacyFilterInner {
     /// App executable names (lowercase) that must never be captured.
     blocked_apps: HashSet<String>,
     /// Window-title / URL fragments for internal architecture docs (lowercase).
     blocked_doc_fragments: Vec<String>,
+    user_blocked_apps: RwLock<HashSet<String>>,
+    user_blocked_domains: RwLock<HashSet<String>>,
+}
+
+/// Decides whether a captured snapshot should be stored and redacts PII from text.
+#[derive(Clone)]
+pub struct PrivacyFilter {
+    inner: Arc<PrivacyFilterInner>,
+}
+
+/// Shared Tauri state for the privacy filter (user exclusions are hot-reloaded).
+pub struct PrivacyFilterState {
+    pub filter: PrivacyFilter,
+}
+
+impl Default for PrivacyFilterState {
+    fn default() -> Self {
+        Self {
+            filter: PrivacyFilter::new(),
+        }
+    }
+}
+
+impl PrivacyFilterState {
+    pub fn set_user_exclusions(&self, blocked_apps: Vec<String>, blocked_domains: Vec<String>) {
+        let apps: HashSet<String> = blocked_apps
+            .iter()
+            .map(|s| normalize_app(s))
+            .filter(|s| !s.is_empty())
+            .collect();
+        let domains: HashSet<String> = blocked_domains
+            .iter()
+            .map(|s| normalize_domain(s))
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if let Ok(mut guard) = self.filter.inner.user_blocked_apps.write() {
+            *guard = apps;
+        }
+        if let Ok(mut guard) = self.filter.inner.user_blocked_domains.write() {
+            *guard = domains;
+        }
+
+        let app_count = self
+            .filter
+            .inner
+            .user_blocked_apps
+            .read()
+            .map(|g| g.len())
+            .unwrap_or(0);
+        let domain_count = self
+            .filter
+            .inner
+            .user_blocked_domains
+            .read()
+            .map(|g| g.len())
+            .unwrap_or(0);
+        log::info!(
+            "[PrivacyFilter] User exclusions updated: {app_count} app(s), {domain_count} domain(s)"
+        );
+    }
 }
 
 impl PrivacyFilter {
@@ -109,8 +208,12 @@ impl PrivacyFilter {
         .collect();
 
         Self {
-            blocked_apps,
-            blocked_doc_fragments,
+            inner: Arc::new(PrivacyFilterInner {
+                blocked_apps,
+                blocked_doc_fragments,
+                user_blocked_apps: RwLock::new(HashSet::new()),
+                user_blocked_domains: RwLock::new(HashSet::new()),
+            }),
         }
     }
 
@@ -120,6 +223,7 @@ impl PrivacyFilter {
         let combined = format!("{title} {url}");
 
         if self
+            .inner
             .blocked_doc_fragments
             .iter()
             .any(|frag| combined.contains(frag.as_str()))
@@ -177,6 +281,41 @@ impl PrivacyFilter {
         hits >= 3
     }
 
+    fn is_user_excluded(&self, ctx: &WindowContext) -> bool {
+        let app_lower = normalize_app(&ctx.app_name);
+        if let Ok(user_apps) = self.inner.user_blocked_apps.read() {
+            if user_apps
+                .iter()
+                .any(|blocked| app_lower.contains(blocked) || blocked.contains(&app_lower))
+            {
+                return true;
+            }
+        }
+
+        if let Ok(user_domains) = self.inner.user_blocked_domains.read() {
+            if let Some(url) = ctx.url.as_deref() {
+                let host = host_from_url(url);
+                if !host.is_empty()
+                    && user_domains
+                        .iter()
+                        .any(|domain| domain_matches(&host, domain))
+                {
+                    return true;
+                }
+            }
+
+            let title_lower = ctx.window_title.to_lowercase();
+            if user_domains
+                .iter()
+                .any(|domain| title_lower.contains(domain.as_str()))
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Returns `false` for contexts that should never be captured:
     /// - App is on the block-list
     /// - Browser is in private / incognito mode (detected via window title)
@@ -191,10 +330,15 @@ impl PrivacyFilter {
 
         // Check app block-list (substring match so "keepassxc" matches "keepass")
         if self
+            .inner
             .blocked_apps
             .iter()
             .any(|b| app_lower.contains(b.as_str()))
         {
+            return false;
+        }
+
+        if self.is_user_excluded(ctx) {
             return false;
         }
 
@@ -226,4 +370,16 @@ impl PrivacyFilter {
         let text = otp_regex().replace_all(&text, "[REDACTED-OTP]");
         text.to_string()
     }
+}
+
+// ─── Tauri commands ───────────────────────────────────────────────────────────
+
+/// Update user-defined app and domain exclusions (hot-reloaded by the watcher).
+#[tauri::command]
+pub fn set_capture_exclusions(
+    state: State<'_, PrivacyFilterState>,
+    blocked_apps: Vec<String>,
+    blocked_domains: Vec<String>,
+) {
+    state.set_user_exclusions(blocked_apps, blocked_domains);
 }

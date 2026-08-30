@@ -11,6 +11,7 @@ import Screenshot from "@/pages/screenshot";
 import Responses from "@/pages/responses";
 import Billing from "@/pages/billing";
 import ContextMemory from "@/pages/context-memory";
+import SkillsPage from "@/pages/skills";
 import SupabaseTestPage from "@/pages/dev/supabase-test";
 
 export const router = createBrowserRouter([
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
       { path: "/responses", element: <Responses /> },
       { path: "/billing", element: <Billing /> },
       { path: "/context-memory", element: <ContextMemory /> },
+      { path: "/skills", element: <SkillsPage /> },
     ],
   },
 ]);

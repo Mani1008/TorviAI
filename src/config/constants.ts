@@ -17,6 +17,8 @@ export const STORAGE_KEYS = {
   USER_PROFILE: "torvi_user_profile",
   USAGE_STATS: "torvi_usage_stats",
   VAD_CONFIG: "torvi_vad_config",
+  CAPTURE_EXCLUSIONS: "torvi_capture_exclusions",
+  USER_PREFERENCES: "torvi_user_preferences",
 } as const;
 
 /** Base URL of the landing page / web app (set in .env) */

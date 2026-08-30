@@ -18,8 +18,6 @@ use tauri::{AppHandle, Emitter};
 #[cfg(target_os = "windows")]
 use tokio::sync::mpsc;
 
-use crate::privacy_filter::PrivacyFilter;
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /// A single screen-context snapshot emitted to the frontend.
@@ -59,6 +57,7 @@ impl Default for AppContextState {
 pub async fn start_context_watcher(
     app: AppHandle,
     state: tauri::State<'_, AppContextState>,
+    filter_state: tauri::State<'_, crate::privacy_filter::PrivacyFilterState>,
 ) -> Result<(), String> {
     // Atomically flip running: false → true.  If it was already true, bail out.
     if state
@@ -72,8 +71,9 @@ pub async fn start_context_watcher(
 
     let running = Arc::clone(&state.running);
     let app_handle = app.clone();
+    let filter = filter_state.filter.clone();
 
-    tokio::spawn(run_watcher_loop(running, app_handle));
+    tokio::spawn(run_watcher_loop(running, app_handle, filter));
     log::info!("[ContextWatcher] Started.");
     Ok(())
 }
@@ -127,7 +127,11 @@ pub async fn clear_context_data(
 ///
 /// Both triggers feed into a single capture/emit path.
 #[cfg(target_os = "windows")]
-async fn run_watcher_loop(running: Arc<AtomicBool>, app: AppHandle) {
+async fn run_watcher_loop(
+    running: Arc<AtomicBool>,
+    app: AppHandle,
+    filter: crate::privacy_filter::PrivacyFilter,
+) {
     // Open our own sqlx pool for direct writes — bypasses tauri-plugin-sql IPC.
     let ctx_db = match crate::context_db::ContextDb::open(&app).await {
         Ok(db) => {
@@ -156,7 +160,6 @@ async fn run_watcher_loop(running: Arc<AtomicBool>, app: AppHandle) {
         winevent_message_pump(tx, running_hook);
     });
 
-    let filter = PrivacyFilter::new();
     let mut last_hash = String::new();
     // Track when we last emitted so we can force a re-emit after STALE_SECS even
     // if the visible content hash has not changed.  Without this the watcher
